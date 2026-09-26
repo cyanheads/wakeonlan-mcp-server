@@ -134,7 +134,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 WOL_HOSTS_FILE=~/.config/wakeonlan/ho
 ### Prerequisites
 
 - [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
-- A machine attached to the same LAN segment as the hosts it wakes. Run the server directly on that machine's OS: a container on a default bridge network, or WSL2 in its default NAT mode, can't put a broadcast on the LAN.
+- A machine attached to the same LAN segment as the hosts it wakes. Run the server on that machine's OS, or in [Docker](#docker) with host networking on Linux: a container on a default bridge network, Docker Desktop on macOS or Windows, or WSL2 in its default NAT mode can't put a broadcast on the LAN.
 - Targets with Wake-on-LAN enabled in firmware and armed by the OS. `wol_list_reference` with topic `prerequisites` has the Windows, Linux, and macOS settings.
 
 ### macOS: Local Network permission
@@ -264,6 +264,39 @@ A startup guard refuses any HTTP deployment that would let an unauthenticated ca
   bun run devcheck  # Lints, formats, type-checks, and more
   bun run test      # Runs the test suite
   ```
+
+### Docker
+
+The image is Linux-only. It can wake hosts only when run with `--network host` (or on a macvlan network) on a Linux machine attached to their LAN, such as a Raspberry Pi, NAS, or home server that already runs Docker. On a default bridge network the container sees only Docker's private subnet, so `wol_wake_host` fails with `off_segment` before sending anything. Docker Desktop on macOS and Windows runs containers in a VM, so its broadcasts can't reach the LAN in any network mode.
+
+Build the image from a clone of this repository:
+
+```sh
+docker build -t wakeonlan-mcp-server .
+```
+
+Then add it to your MCP client configuration on that machine. The [hosts file](#host-profiles) is mounted read-only from an absolute host path, and `WOL_HOSTS_FILE` names where it sits inside the container:
+
+```json
+{
+  "mcpServers": {
+    "wakeonlan-mcp-server": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "host",
+        "-v", "/path/to/hosts.json:/etc/wakeonlan/hosts.json:ro",
+        "-e", "MCP_TRANSPORT_TYPE=stdio",
+        "-e", "WOL_HOSTS_FILE=/etc/wakeonlan/hosts.json",
+        "wakeonlan-mcp-server"
+      ]
+    }
+  }
+}
+```
+
+The container runs as the image's `bun` user (uid 1000), which must be able to read the hosts file. Without `MCP_TRANSPORT_TYPE=stdio` the image serves Streamable HTTP on port 3010, bound to loopback, which under host networking is the host's own; any other bind needs `MCP_AUTH_MODE` `jwt` or `oauth` (see [HTTP exposure](#http-exposure)). Logs go to `/var/log/wakeonlan-mcp-server`. OpenTelemetry peer dependencies are installed by default; build with `--build-arg OTEL_ENABLED=false` to omit them.
 
 ## Project structure
 

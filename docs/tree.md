@@ -1,6 +1,6 @@
 # wakeonlan-mcp-server - Directory Structure
 
-Generated on: 2026-09-26 17:05:40
+Generated on: 2026-09-26 22:59:39
 
 ```text
 wakeonlan-mcp-server/
@@ -190,6 +190,7 @@ wakeonlan-mcp-server/
 │   ├── smoke/
 │   │   └── definitions.smoke.test.ts
 │   └── index.test.ts
+├── .dockerignore
 ├── .env.example
 ├── .gitattributes
 ├── .gitignore
@@ -201,6 +202,7 @@ wakeonlan-mcp-server/
 ├── CHANGELOG.md
 ├── CLAUDE.md
 ├── devcheck.config.json
+├── Dockerfile
 ├── LICENSE
 ├── manifest.json
 ├── package.json

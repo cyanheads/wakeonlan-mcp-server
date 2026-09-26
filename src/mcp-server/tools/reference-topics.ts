@@ -164,7 +164,7 @@ const senderEnvironment = [
   '',
   '## Containers',
   '',
-  'A container on a default bridge network has no layer-2 access to the LAN, so its broadcasts never reach the target. Run the server directly on a machine attached to the LAN.',
+  "A container on a default bridge network sees only Docker's private subnet, so every LAN host reads `off_segment`. On a Linux machine attached to the LAN, run the container with `--network host` (or on a macvlan network) so it uses the LAN interface directly. Docker Desktop on macOS and Windows runs containers in a VM, so its broadcasts never reach the LAN in any network mode; run the server directly on the machine instead.",
   '',
   '## VPNs',
   '',
