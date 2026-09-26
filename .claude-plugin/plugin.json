@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "wakeonlan-mcp-server",
+  "version": "0.1.0",
+  "description": "Wake LAN machines with Wake-on-LAN magic packets from operator-configured host profiles, then confirm they came up.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/wakeonlan-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/wakeonlan-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "wake-on-lan",
+    "wol",
+    "magic-packet",
+    "homelab",
+    "lan"
+  ],
+  "mcpServers": {
+    "wakeonlan-mcp-server": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cyanheads/wakeonlan-mcp-server"
+      ],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}
