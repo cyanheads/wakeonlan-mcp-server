@@ -14,6 +14,7 @@ import { blockquote, flattenLine, hostPort, refusedGuidance } from '../text.js';
 
 const MAX_WAIT_S = 55;
 const DEFAULT_WAIT_S = 30;
+const POLL_INTERVAL_S = POLL_INTERVAL_MS / 1000;
 
 const DARWIN_SOCKET_HINT =
   'On macOS 15 and later, the user must allow Local Network access for the app that launched this server (System Settings > Privacy & Security > Local Network); the first send after that prompt appears can fail before it is answered. Retry wol_wake_host once access is allowed, and call wol_list_reference with topic sender-environment if it still fails.';
@@ -38,7 +39,7 @@ function wakeGuidance(
 
 export const wolWakeHost = tool('wol_wake_host', {
   title: 'Wake Host',
-  description: `Send Wake-on-LAN magic packets to a configured host and, by default, wait until it answers on its TCP check port. Name the host by its alias from wol_list_hosts; the MAC, broadcast address, and ports come from the operator's profile, and a host this machine has no interface on (on_segment false in wol_list_hosts) is refused before anything is sent. It probes the check port once, sends ${PACKET_COUNT} packets, then re-probes every ${POLL_INTERVAL_MS / 1000} seconds until the port answers or wait_for_s elapses. The result state is already_awake (the port answered before the packets went out; they are still sent), awake (it answered within the window, with time_to_answer_ms), not_reachable (the window elapsed; the host may still be booting, so re-check with wol_check_host), or unverified (no probe ran: wait_for_s was 0, or the profile has no address).`,
+  description: `Send Wake-on-LAN magic packets to a configured host and, by default, wait until it answers on its TCP check port. Name the host by its alias from wol_list_hosts; the MAC, broadcast address, and ports come from the operator's profile, and a host this machine has no interface on (on_segment false in wol_list_hosts) is refused before anything is sent. It probes the check port once, sends ${PACKET_COUNT} packets, then re-probes every ${POLL_INTERVAL_S} seconds until the port answers or wait_for_s elapses. The result state is already_awake (the port answered before the packets went out; they are still sent), awake (it answered within the window, with time_to_answer_ms), not_reachable (the window elapsed; the host may still be booting, so re-check with wol_check_host), or unverified (no probe ran: wait_for_s was 0, or the profile has no address).`,
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -102,7 +103,7 @@ export const wolWakeHost = tool('wol_wake_host', {
       .int()
       .optional()
       .describe(
-        'Time from the first packet to the check port answering, in ms. Present only when state is awake.',
+        `Time from the first packet to the confirmation poll that connected, in ms. Polls run every ${POLL_INTERVAL_S} seconds, so this is an upper bound on when the check port started answering, not the exact moment. Present only when state is awake.`,
       ),
     elapsed_ms: z.number().int().describe('Wall-clock time for the whole call, in ms.'),
     guidance: z
@@ -126,6 +127,15 @@ export const wolWakeHost = tool('wol_wake_host', {
       severity: 'warning',
       recovery:
         "Nothing was sent: this machine has no network interface on the host's subnet. Call wol_check_host to see whether the host is already awake. Waking it needs the server on a machine attached to that LAN, or a corrected broadcast in the profile; wol_list_reference with topic sender-environment covers the WSL2, VPN, and container setups that cause this.",
+    },
+    {
+      reason: 'wake_in_progress',
+      code: JsonRpcErrorCode.Conflict,
+      when: 'Another wol_wake_host call for the same host is still running; one wake per host runs at a time. Nothing is sent.',
+      retryable: true,
+      severity: 'notice',
+      recovery:
+        'Another wol_wake_host call for this host is still running and returns within a minute. Call wol_check_host to see whether the host is up, or retry wol_wake_host once that call has returned.',
     },
     {
       reason: 'socket_error',
@@ -172,6 +182,13 @@ export const wolWakeHost = tool('wol_wake_host', {
     }
 
     const result = await lan.wake(profile, segment, input.wait_for_s, ctx.signal);
+    if (result.kind === 'in_progress') {
+      throw ctx.fail(
+        'wake_in_progress',
+        `A wake of "${alias}" is already running; only one wake of a host runs at a time, and nothing was sent.`,
+        { alias, ...ctx.recoveryFor('wake_in_progress') },
+      );
+    }
     if (result.kind === 'send_failed') {
       throw ctx.fail(
         'socket_error',
@@ -221,12 +238,12 @@ export const wolWakeHost = tool('wol_wake_host', {
     }
     if (result.probe !== undefined) {
       const { address, port, attempts, last_outcome } = result.probe;
-      const answered =
+      const connected =
         result.time_to_answer_ms !== undefined
-          ? `, answered ${result.time_to_answer_ms} ms after the first packet`
+          ? `, poll connected ${result.time_to_answer_ms} ms after the first packet (an upper bound on when the port came up; polls run every ${POLL_INTERVAL_S} s)`
           : '';
       lines.push(
-        `- **Probe:** ${hostPort(address, port)} (TCP), ${attempts} attempt${attempts === 1 ? '' : 's'}, last outcome ${last_outcome}${answered}`,
+        `- **Probe:** ${hostPort(address, port)} (TCP), ${attempts} attempt${attempts === 1 ? '' : 's'}, last outcome ${last_outcome}${connected}`,
       );
     }
     lines.push(

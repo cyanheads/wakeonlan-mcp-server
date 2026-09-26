@@ -6,7 +6,7 @@
  * @module services/hosts/hosts-config
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { isIP, isIPv4 } from 'node:net';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
@@ -23,9 +23,13 @@ export const ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export interface HostsConfigDeps {
   homedir(): string;
   readFile(path: string, encoding: 'utf8'): Promise<string>;
+  stat(path: string): Promise<{ isFile(): boolean; size: number }>;
 }
 
-const defaultDeps: HostsConfigDeps = { readFile, homedir };
+const defaultDeps: HostsConfigDeps = { readFile, stat, homedir };
+
+/** Largest hosts file the loader reads: far past any real profile list, well short of a memory problem. */
+const MAX_HOSTS_FILE_BYTES = 1024 * 1024;
 
 const MAC_FORMATS = '00:00:5e:00:53:01 (colons or dashes), 0000.5e00.5301, or 00005e005301';
 
@@ -127,6 +131,40 @@ function resolveHostsPath(raw: string, deps: HostsConfigDeps): string {
   return expanded;
 }
 
+function unreadable(label: string, err: unknown) {
+  const code = (err as { code?: unknown } | null)?.code;
+  return configurationError(
+    `${label} could not be read${typeof code === 'string' ? ` (${code})` : ''}.`,
+    undefined,
+    { cause: err },
+  );
+}
+
+/**
+ * Read the hosts file, refusing anything but a regular file of at most
+ * `MAX_HOSTS_FILE_BYTES` before opening it: a FIFO or `/dev/stdin` would block
+ * startup (under stdio, stdin is the JSON-RPC stream), and a device such as
+ * `/dev/zero` never ends. `stat` follows symlinks, so it sees what a path
+ * like `/dev/stdin` resolves to.
+ */
+async function readHostsFile(path: string, label: string, deps: HostsConfigDeps): Promise<string> {
+  const fail = (err: unknown): never => {
+    throw unreadable(label, err);
+  };
+  const info = await deps.stat(path).catch(fail);
+  if (!info.isFile()) {
+    throw configurationError(
+      `${label} is not a regular file; point WOL_HOSTS_FILE at a JSON file, not a directory, pipe, or device.`,
+    );
+  }
+  if (info.size > MAX_HOSTS_FILE_BYTES) {
+    throw configurationError(
+      `${label} is ${info.size} bytes, over the 1 MiB (${MAX_HOSTS_FILE_BYTES}-byte) limit for a hosts file.`,
+    );
+  }
+  return deps.readFile(path, 'utf8').catch(fail);
+}
+
 function entryLabel(entry: unknown, index: number, total: number): string {
   const alias = (entry as { alias?: unknown } | null)?.alias;
   const named = typeof alias === 'string' && ALIAS_PATTERN.test(alias) ? ` (alias "${alias}")` : '';
@@ -197,19 +235,9 @@ export async function loadHostsConfig(
   if (config.hostsFile) {
     const path = resolveHostsPath(config.hostsFile, deps);
     const label = `WOL_HOSTS_FILE (${path})`;
-    let text: string;
-    try {
-      text = await deps.readFile(path, 'utf8');
-    } catch (err) {
-      const code = (err as { code?: unknown } | null)?.code;
-      throw configurationError(
-        `${label} could not be read${typeof code === 'string' ? ` (${code})` : ''}.`,
-        undefined,
-        { cause: err },
-      );
-    }
+    const text = await readHostsFile(path, label, deps);
     // `readFile` keeps a UTF-8 byte-order mark, which `JSON.parse` rejects; Windows editors write one.
-    const document = parseJson(text.replace(/^﻿/, ''), label);
+    const document = parseJson(text.replace(/^\u{FEFF}/u, ''), label);
     return { source: 'file', path, profiles: validateProfiles(document, label) };
   }
 

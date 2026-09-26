@@ -56,6 +56,13 @@ describe('tool definitions', () => {
         retryable: undefined,
         severity: 'warning',
       },
+      // Another call is already waking the host: an ordinary answer, retryable once it returns.
+      {
+        reason: 'wake_in_progress',
+        code: JsonRpcErrorCode.Conflict,
+        retryable: true,
+        severity: 'notice',
+      },
       // A failed send is a real fault: it keeps the default error level.
       {
         reason: 'socket_error',

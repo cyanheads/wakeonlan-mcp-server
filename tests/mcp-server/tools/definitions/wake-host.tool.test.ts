@@ -14,6 +14,7 @@ import {
   runToolContract,
 } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { wolCheckHost } from '@/mcp-server/tools/definitions/check-host.tool.js';
 import { wolWakeHost } from '@/mcp-server/tools/definitions/wake-host.tool.js';
 import { NO_PROFILES_HINT } from '@/mcp-server/tools/host-alias.js';
 import { refusedGuidance } from '@/mcp-server/tools/text.js';
@@ -25,8 +26,10 @@ import {
   errorOf,
   installHosts,
   installNoHosts,
+  LINE_BREAKS,
   magicPacketHex,
   PROFILES,
+  renderedLines,
   SECUREON,
   structuredOf,
   v4,
@@ -282,6 +285,31 @@ describe('wol_wake_host — result states on both surfaces', () => {
   });
 });
 
+describe('wol_wake_host — time_to_answer_ms', () => {
+  const pollS = POLL_INTERVAL_MS / 1000;
+
+  it("describes the connecting poll's time as an upper bound, not the moment the port came up", () => {
+    const description = wolWakeHost.output.shape.time_to_answer_ms.description ?? '';
+    expect(description).toContain('confirmation poll that connected');
+    expect(description).toContain(`every ${pollS} seconds`);
+    expect(description).toContain('upper bound');
+    expect(description).not.toContain('to the check port answering');
+  });
+
+  it('renders it in content[] as the poll that connected, flagged as an upper bound', async () => {
+    const { structured, text } = await wake(
+      { alias: 'gpu-box', wait_for_s: 10 },
+      { tcp: { '192.0.2.50': ['silent', 'open'] } },
+    );
+    const connectedAt = POLL_INTERVAL_MS + LATENCY.open;
+    expect(structured).toMatchObject({ state: 'awake', time_to_answer_ms: connectedAt });
+    expect(text).toContain(
+      `poll connected ${connectedAt} ms after the first packet (an upper bound on when the port came up; polls run every ${pollS} s)`,
+    );
+    expect(text).not.toContain(`answered ${connectedAt} ms`);
+  });
+});
+
 describe('wol_wake_host — SecureOn', () => {
   it('reports only that a password was appended, never the password, on either surface or in logs', async () => {
     const fakes = installLanFakes({ tcp: { 'nas.home.arpa': ['open'] } });
@@ -415,18 +443,25 @@ describe('wol_wake_host — off_segment', () => {
     expect(error.data).toMatchObject({ reason: 'off_segment', local_subnets: [] });
   });
 
-  it('flattens CR/LF in interface names in the message while data keeps them verbatim', async () => {
-    const name = 'en0\r\n## Injected';
-    const { error } = await wakeFailure(
-      { alias: 'lab' },
-      { interfaces: { [name]: [v4('192.0.2.10', '255.255.255.0', '192.0.2.10/24')] } },
-    );
-    expect(error.message).not.toMatch(/[\r\n]/);
-    expect(error.message).toContain('en0 ## Injected 192.0.2.10/24');
-    expect(error.data).toMatchObject({
-      local_subnets: [{ interface: name, cidr: '192.0.2.10/24' }],
-    });
-  });
+  it.each(LINE_BREAKS)(
+    'flattens %s in interface names on both error surfaces, keeping data verbatim',
+    async (_name, br) => {
+      const name = `en0${br}## Injected`;
+      const { result } = await wake(
+        { alias: 'lab' },
+        { interfaces: { [name]: [v4('192.0.2.10', '255.255.255.0', '192.0.2.10/24')] } },
+      );
+      const error = errorOf(result);
+      expect(renderedLines(error.message)).toHaveLength(1);
+      expect(error.message).toContain('en0 ## Injected 192.0.2.10/24');
+      expect(error.data).toMatchObject({
+        local_subnets: [{ interface: name, cidr: '192.0.2.10/24' }],
+      });
+      const text = contentText(result);
+      expect(text).toContain('en0 ## Injected 192.0.2.10/24');
+      expect(renderedLines(text).some((line) => line.startsWith('## Injected'))).toBe(false);
+    },
+  );
 
   it('re-resolves per call, so a host goes on-segment once the machine joins its subnet', async () => {
     const lab = { interfaces: { en5: [v4('203.0.113.4', '255.255.255.0', '203.0.113.4/24')] } };
@@ -530,6 +565,99 @@ describe('wol_wake_host — socket_error', () => {
     });
     expect(contentText(result)).toContain('reason socket_error');
     expect(contentText(result)).toContain('retryable');
+  });
+});
+
+describe('wol_wake_host — wake_in_progress', () => {
+  /**
+   * Start a wake through the handler without awaiting it. The handler claims
+   * the host before its first await, so a call made right after sees it busy.
+   */
+  function startWake(input: WakeInput, signal = new AbortController().signal) {
+    const ctx = createMockContext({ errors: wolWakeHost.errors, signal });
+    return wolWakeHost.handler(wolWakeHost.input.parse(input), ctx);
+  }
+
+  it('refuses a second wake of a host while the first runs, on both surfaces, touching no socket', async () => {
+    const fakes = installLanFakes({ tcp: { '192.0.2.50': ['open'] } });
+    const first = startWake({ alias: 'gpu-box' });
+    const second = await runToolContract(wolWakeHost, { alias: 'gpu-box' });
+
+    expect(second.isError).toBe(true);
+    const error = errorOf(second);
+    expect(error).toMatchObject({
+      code: JsonRpcErrorCode.Conflict,
+      data: {
+        reason: 'wake_in_progress',
+        retryable: true,
+        alias: 'gpu-box',
+        recovery: { hint: recoveryFor('wake_in_progress') },
+      },
+    });
+    expect(error.message).toContain('gpu-box');
+    const text = contentText(second);
+    expect(text).toMatch(/^Error: /);
+    expect(text).toContain(`Recovery: ${recoveryFor('wake_in_progress')}`);
+    expect(text).toContain('reason wake_in_progress · retryable');
+
+    await expect(first).resolves.toMatchObject({ state: 'already_awake' });
+    expect(fakes.udp.sockets).toHaveLength(1);
+    expect(fakes.tcp.connects).toHaveLength(1);
+  });
+
+  it('treats the alias case-insensitively: GPU-BOX is busy while gpu-box wakes', async () => {
+    installLanFakes({ tcp: { '192.0.2.50': ['open'] } });
+    const first = startWake({ alias: 'gpu-box' });
+    await expect(startWake({ alias: 'GPU-BOX' })).rejects.toMatchObject({
+      code: JsonRpcErrorCode.Conflict,
+      data: { reason: 'wake_in_progress', alias: 'gpu-box' },
+    });
+    await first;
+  });
+
+  it('lets a wake of another host run alongside', async () => {
+    const fakes = installLanFakes({ tcp: { '192.0.2.50': ['open'], 'nas.home.arpa': ['open'] } });
+    const first = startWake({ alias: 'gpu-box' });
+    const second = await runToolContract(wolWakeHost, { alias: 'nas' });
+    expect(structuredOf(second)).toMatchObject({ alias: 'nas', state: 'already_awake' });
+    await expect(first).resolves.toMatchObject({ alias: 'gpu-box', state: 'already_awake' });
+    expect(fakes.udp.sockets).toHaveLength(2);
+  });
+
+  it('leaves wol_check_host of the same host free to run', async () => {
+    installLanFakes({ tcp: { '192.0.2.50': ['open'] } });
+    const first = startWake({ alias: 'gpu-box' });
+    const check = await runToolContract(wolCheckHost, { alias: 'gpu-box' });
+    expect(structuredOf(check)).toMatchObject({ alias: 'gpu-box', outcome: 'open' });
+    await first;
+  });
+
+  it('frees the host once a wake returns', async () => {
+    installLanFakes({ tcp: { '192.0.2.50': ['open'] } });
+    await startWake({ alias: 'gpu-box' });
+    const again = await runToolContract(wolWakeHost, { alias: 'gpu-box' });
+    expect(structuredOf(again)).toMatchObject({ state: 'already_awake' });
+  });
+
+  it('frees the host once a wake fails', async () => {
+    const fakes = installLanFakes({ udp: { failSend: { nth: 2, error: coded('ENETUNREACH') } } });
+    await expect(startWake({ alias: 'gpu-box', wait_for_s: 0 })).rejects.toMatchObject({
+      data: { reason: 'socket_error' },
+    });
+    const again = await runToolContract(wolWakeHost, { alias: 'gpu-box', wait_for_s: 0 });
+    expect(errorOf(again).data).toMatchObject({ reason: 'socket_error' });
+    expect(fakes.udp.sockets).toHaveLength(2);
+  });
+
+  it('frees the host once a wake is cancelled', async () => {
+    const fakes = installLanFakes({ tcp: { '192.0.2.50': ['silent'] } });
+    const controller = new AbortController();
+    fakes.clock.schedule(PROBE_TIMEOUT_MS + 1300, () => controller.abort());
+    await expect(startWake({ alias: 'gpu-box' }, controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    const again = await runToolContract(wolWakeHost, { alias: 'gpu-box', wait_for_s: 0 });
+    expect(structuredOf(again)).toMatchObject({ state: 'unverified' });
   });
 });
 
@@ -647,9 +775,12 @@ describe('wol_wake_host — format()', () => {
     expect(no).not.toContain('yes');
   });
 
-  it('flattens CR/LF in an OS-supplied interface name so it cannot start a new heading', () => {
-    const text = render({ ...sent, state: 'already_awake', interface: 'en0\r\n## Injected' });
-    expect(text).toContain('en0 ## Injected');
-    expect(text.split('\n').some((line) => line.startsWith('## Injected'))).toBe(false);
-  });
+  it.each(LINE_BREAKS)(
+    'flattens %s in an OS-supplied interface name so it cannot start a new heading',
+    (_name, br) => {
+      const text = render({ ...sent, state: 'already_awake', interface: `en0${br}## Injected` });
+      expect(text).toContain('en0 ## Injected');
+      expect(renderedLines(text).some((line) => line.startsWith('## Injected'))).toBe(false);
+    },
+  );
 });

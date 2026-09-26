@@ -204,6 +204,22 @@ describe('wol_check_host — input', () => {
     expect(Object.keys(wolCheckHost.input.shape)).toEqual(['alias']);
     expect(wolCheckHost.input.safeParse({ alias: 'gpu-box', port: 3389 }).success).toBe(false);
   });
+
+  it.each([
+    ['address', '192.0.2.99'],
+    ['check_port', 3389],
+  ])(
+    'rejects a raw %s alongside the alias on the contract path, probing nothing',
+    async (key, value) => {
+      expect(wolCheckHost.input.safeParse({ alias: 'gpu-box', [key]: value }).success).toBe(false);
+      const { result, fakes } = await check({ alias: 'gpu-box', [key]: value } as CheckInput);
+      expect(errorOf(result)).toMatchObject({
+        code: JsonRpcErrorCode.InvalidParams,
+        data: { reason: 'invalid_arguments' },
+      });
+      expect(fakes.tcp.connects).toHaveLength(0);
+    },
+  );
 });
 
 describe('wol_check_host — errors', () => {

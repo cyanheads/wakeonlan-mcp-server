@@ -15,15 +15,35 @@ const HOME = '/home/operator';
 const MAC = '00:00:5e:00:53:01';
 const HOSTS_PATH = '/etc/wol/hosts.json';
 
-/** In-memory filesystem: path → text, or an error to throw. */
-function fakeFs(files: Record<string, string | Error> = {}) {
+const MIB = 1024 * 1024;
+
+/** A directory, FIFO, or device node: `stat` reports it as not a regular file. */
+const SPECIAL = Symbol('special file');
+
+/**
+ * In-memory filesystem. A string is a regular file holding that text (its
+ * `stat` size is the UTF-8 byte length); an Error is a regular file whose read
+ * fails with it; {@link SPECIAL} is a non-regular file, which fails the test if
+ * it is ever read. A missing path fails `stat` and `readFile` with ENOENT.
+ */
+function fakeFs(files: Record<string, string | Error | typeof SPECIAL> = {}) {
   const reads: Array<{ encoding: string; path: string }> = [];
+  const missing = (path: string) => coded('ENOENT', `ENOENT: no such file or directory, '${path}'`);
   const deps: HostsConfigDeps = {
     homedir: () => HOME,
+    stat: async (path) => {
+      const file = files[path];
+      if (file === undefined) throw missing(path);
+      return {
+        isFile: () => file !== SPECIAL,
+        size: typeof file === 'string' ? Buffer.byteLength(file) : 0,
+      };
+    },
     readFile: async (path, encoding) => {
       reads.push({ path, encoding });
       const file = files[path];
-      if (file === undefined) throw coded('ENOENT', `ENOENT: no such file or directory, '${path}'`);
+      if (file === undefined) throw missing(path);
+      if (file === SPECIAL) throw new Error(`Read a non-regular file: ${path}`);
       if (file instanceof Error) throw file;
       return file;
     },
@@ -240,17 +260,53 @@ describe('loadHostsConfig — startup ConfigurationErrors', () => {
     },
   );
 
+  it('reports a missing hosts file (ENOENT from stat) without reading it', async () => {
+    const fs = fakeFs();
+    const error = await configurationFailure(loadHostsConfig({ hostsFile: HOSTS_PATH }, fs.deps));
+    expect(error.message).toContain(`WOL_HOSTS_FILE (${HOSTS_PATH}) could not be read (ENOENT)`);
+    expect(error.cause).toMatchObject({ code: 'ENOENT' });
+    expect(fs.reads).toEqual([]);
+  });
+
   it.each([
     ['ENOENT', coded('ENOENT')],
     ['EACCES', coded('EACCES')],
-    ['EISDIR', coded('EISDIR')],
-  ])('reports an unreadable hosts file (%s) with its errno code', async (code, failure) => {
+    ['EIO', coded('EIO')],
+  ])('reports a hosts file whose read fails (%s) with its errno code', async (code, failure) => {
     const error = await configurationFailure(
       loadHostsConfig({ hostsFile: HOSTS_PATH }, fakeFs({ [HOSTS_PATH]: failure }).deps),
     );
     expect(error.message).toContain(HOSTS_PATH);
     expect(error.message).toContain(code);
     expect(error.cause).toBe(failure);
+  });
+
+  it.each(['/dev/stdin', '/dev/zero', '/tmp/wol.fifo', '/etc/wol'])(
+    'refuses %s, which is not a regular file, without reading it',
+    async (path) => {
+      const fs = fakeFs({ [path]: SPECIAL });
+      const error = await configurationFailure(loadHostsConfig({ hostsFile: path }, fs.deps));
+      expect(error.message).toContain(`WOL_HOSTS_FILE (${path}) is not a regular file`);
+      expect(fs.reads).toEqual([]);
+    },
+  );
+
+  it('refuses a hosts file 1 byte over 1 MiB without reading it', async () => {
+    const fs = fakeFs({ [HOSTS_PATH]: `[${' '.repeat(MIB - 1)}]` });
+    const error = await configurationFailure(loadHostsConfig({ hostsFile: HOSTS_PATH }, fs.deps));
+    expect(error.message).toContain(`WOL_HOSTS_FILE (${HOSTS_PATH}) is ${MIB + 1} bytes`);
+    expect(error.message).toContain('1 MiB');
+    expect(fs.reads).toEqual([]);
+  });
+
+  it('loads a hosts file of exactly 1 MiB', async () => {
+    const fs = fakeFs({ [HOSTS_PATH]: `[${' '.repeat(MIB - 2)}]` });
+    await expect(loadHostsConfig({ hostsFile: HOSTS_PATH }, fs.deps)).resolves.toEqual({
+      source: 'file',
+      path: HOSTS_PATH,
+      profiles: [],
+    });
+    expect(fs.reads).toHaveLength(1);
   });
 
   it('reports an unreadable hosts file whose error carries no code', async () => {

@@ -71,6 +71,26 @@ export const LOOPBACK_TABLE: InterfaceTable = { lo0: LO0 };
 /** No interfaces at all. */
 export const EMPTY_TABLE: InterfaceTable = {};
 
+/**
+ * Every Unicode mandatory line break (UAX #14): CRLF, LF, VT, FF, CR, NEL,
+ * LS, and PS. Written as escapes so none sits raw in the source.
+ */
+export const LINE_BREAKS = [
+  ['CRLF', '\r\n'],
+  ['LF', '\n'],
+  ['VT', '\v'],
+  ['FF', '\f'],
+  ['CR', '\r'],
+  ['NEL', '\u0085'],
+  ['LS', '\u{2028}'],
+  ['PS', '\u{2029}'],
+] as const;
+
+/** Split rendered text into lines at any of {@link LINE_BREAKS}. */
+export function renderedLines(text: string): string[] {
+  return text.split(/\r\n|[\n\v\f\r\u{85}\u{2028}\u{2029}]/u);
+}
+
 /** The SecureOn password the fixtures carry, as the operator typed it and as stored. */
 export const SECUREON = { typed: 'A1-B2-C3-D4-E5-F6', stored: 'a1:b2:c3:d4:e5:f6' } as const;
 

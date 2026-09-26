@@ -6,14 +6,16 @@
  */
 
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { toolContractSuite } from '@cyanheads/mcp-ts-core/testing/vitest';
-import { beforeEach, describe, expect } from 'vitest';
+import { createMockContext, toolContractSuite } from '@cyanheads/mcp-ts-core/testing/vitest';
+import { afterEach, beforeEach, describe, expect } from 'vitest';
 import { wolCheckHost } from '@/mcp-server/tools/definitions/check-host.tool.js';
 import { wolListHosts } from '@/mcp-server/tools/definitions/list-hosts.tool.js';
 import { wolListReference } from '@/mcp-server/tools/definitions/list-reference.tool.js';
 import { wolWakeHost } from '@/mcp-server/tools/definitions/wake-host.tool.js';
+import { initLanService } from '@/services/lan/lan-service.js';
+import type { Clock } from '@/services/lan/types.js';
 import { contentText, installHosts, installNoHosts, PROFILES } from '../helpers/fixtures.js';
-import { coded, installLanFakes, type TcpBehavior } from '../helpers/lan-fakes.js';
+import { coded, createLanFakes, installLanFakes, type TcpBehavior } from '../helpers/lan-fakes.js';
 
 /** Per-host probe scripts: each alias lands in a different result state. */
 const TCP: Record<string, readonly TcpBehavior[]> = {
@@ -121,6 +123,49 @@ describe('with a UDP stack that refuses the send', () => {
         input: { alias: 'gpu-box' },
         code: JsonRpcErrorCode.ServiceUnavailable,
         reason: 'socket_error',
+      },
+    ],
+  });
+});
+
+describe('while a wake of the same host is still running', () => {
+  /** Sleeps that never elapse: they end only when their signal aborts. */
+  const heldClock: Clock = {
+    now: () => 0,
+    sleep: (_ms, signal) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+  };
+  let release: AbortController;
+  let running: Promise<unknown>;
+
+  beforeEach(() => {
+    const fakes = createLanFakes({ tcp: { '192.0.2.50': ['silent'] } });
+    initLanService({ ...fakes.deps, clock: heldClock });
+    release = new AbortController();
+    // Holds gpu-box in its pre-probe until afterEach aborts it.
+    running = Promise.resolve(
+      wolWakeHost.handler(
+        wolWakeHost.input.parse({ alias: 'gpu-box' }),
+        createMockContext({ errors: wolWakeHost.errors, signal: release.signal }),
+      ),
+    ).catch(() => undefined);
+  });
+
+  afterEach(async () => {
+    release.abort();
+    await running;
+  });
+
+  toolContractSuite(wolWakeHost, {
+    success: [],
+    errors: [
+      {
+        name: 'wake_in_progress',
+        input: { alias: 'GPU-BOX' },
+        code: JsonRpcErrorCode.Conflict,
+        reason: 'wake_in_progress',
       },
     ],
   });

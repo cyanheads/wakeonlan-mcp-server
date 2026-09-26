@@ -11,15 +11,20 @@ export function hostPort(address: string, port: number): string {
   return isIPv6(address) ? `[${address}]:${port}` : `${address}:${port}`;
 }
 
-/** Flatten CR/LF to a space so an OS- or operator-supplied value stays on its inline line. */
+/**
+ * Flatten line breaks to a space so an OS- or operator-supplied value stays on
+ * its inline line. A line break is any Unicode mandatory break (UAX #14): CR,
+ * LF, CRLF, VT, FF, NEL, LS, or PS; a renderer, or a model reading the text,
+ * can start a new line at any of them.
+ */
 export function flattenLine(text: string): string {
-  return text.replace(/[\r\n]+/g, ' ');
+  return text.replace(/[\n\v\f\r\u{85}\u{2028}\u{2029}]+/gu, ' ');
 }
 
-/** Render text as a markdown blockquote, every line prefixed `> `. */
+/** Render text as a markdown blockquote, `> ` before every line, splitting at the breaks {@link flattenLine} flattens. */
 export function blockquote(text: string): string {
   return text
-    .split(/\r\n|\r|\n/)
+    .split(/\r\n|[\n\v\f\r\u{85}\u{2028}\u{2029}]/u)
     .map((line) => `> ${line}`)
     .join('\n');
 }

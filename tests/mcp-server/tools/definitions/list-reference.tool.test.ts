@@ -86,7 +86,7 @@ describe('wol_list_reference — content covers what the design requires', () =>
       'sender-environment',
       ['Local Network', 'TN3179', 'launchd', 'WSL2', 'off_segment', 'bridge', 'VPN'],
     ],
-    ['host-profiles', ['WOL_HOSTS_FILE', 'WOL_HOSTS', '~/', 'restart']],
+    ['host-profiles', ['WOL_HOSTS_FILE', 'WOL_HOSTS', '~/', 'restart', 'regular file', '1 MiB']],
   ];
 
   it.each(MUST_COVER)('%s names its required facts', (topic, facts) => {

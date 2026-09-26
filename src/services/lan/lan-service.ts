@@ -56,6 +56,9 @@ export function classifyConnectError(err: unknown): Exclude<ProbeOutcome, 'open'
 }
 
 export class LanService {
+  /** Aliases with a wake in flight. */
+  private readonly waking = new Set<string>();
+
   constructor(private readonly deps: LanDeps) {}
 
   get platform(): NodeJS.Platform {
@@ -113,13 +116,35 @@ export class LanService {
   }
 
   /**
+   * Wake a host, one wake per host at a time: while another call is waking the
+   * same profile this returns `in_progress` without sending or probing, since
+   * concurrent wakes would multiply the broadcasts and check-port probes. The
+   * host is claimed before the first await and freed however the wake ends.
+   */
+  async wake(
+    profile: HostProfile,
+    segment: ResolvedSegment,
+    waitForS: number,
+    signal: AbortSignal,
+  ): Promise<WakeResult> {
+    const { alias } = profile;
+    if (this.waking.has(alias)) return { kind: 'in_progress' };
+    this.waking.add(alias);
+    try {
+      return await this.sendAndConfirm(profile, segment, waitForS, signal);
+    } finally {
+      this.waking.delete(alias);
+    }
+  }
+
+  /**
    * Send the magic packets, then confirm the wake. Probes `address:check_port`
    * before sending (to tell `already_awake` from a real wake) and every
    * `POLL_INTERVAL_MS` after the first packet until it answers or `waitForS`
    * elapses. Probing is skipped entirely without an address or when `waitForS`
    * is 0. A failed send is a `send_failed` result; cancellation rejects.
    */
-  async wake(
+  private async sendAndConfirm(
     profile: HostProfile,
     segment: ResolvedSegment,
     waitForS: number,

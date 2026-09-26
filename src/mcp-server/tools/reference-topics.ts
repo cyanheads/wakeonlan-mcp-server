@@ -96,7 +96,7 @@ const troubleshooting = [
 const hostProfiles = [
   'Host profiles are a JSON array, loaded once at startup from one of two environment variables. Set one, not both:',
   '',
-  "- `WOL_HOSTS_FILE`: absolute path to a JSON file. A leading `~/` expands to the home directory. Relative paths are rejected, because a stdio server runs in the MCP client's working directory.",
+  "- `WOL_HOSTS_FILE`: absolute path to a JSON file. A leading `~/` expands to the home directory. Relative paths are rejected, because a stdio server runs in the MCP client's working directory. The path must name a regular file of at most 1 MiB; a directory, a pipe, or a device such as `/dev/stdin` is refused at startup.",
   '- `WOL_HOSTS`: the same JSON inline, for single-host setups or clients where a file is awkward.',
   '',
   'Edits take effect after a server restart. With neither variable set, the server starts with no hosts.',

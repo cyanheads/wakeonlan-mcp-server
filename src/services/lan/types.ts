@@ -59,6 +59,8 @@ export interface ProbeSummary {
 }
 
 export type WakeResult =
+  /** Another wake of the same host is still running; nothing was sent. */
+  | { kind: 'in_progress' }
   | {
       code?: string;
       kind: 'send_failed';
