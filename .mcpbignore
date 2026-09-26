@@ -3,9 +3,11 @@
 /.claude/
 /.agents/
 /framework-skills/
+/logs/
 /bun.lock
 /bunfig.toml
 /wrangler.toml
 /biome.json
 /tsconfig*.json
 /vitest.config.ts
+/docs/idea.md
