@@ -21,6 +21,20 @@
     "homelab",
     "lan"
   ],
+  "userConfig": {
+    "hosts_file": {
+      "type": "string",
+      "title": "Hosts file",
+      "description": "Absolute path to a JSON file of host profiles (a leading ~/ expands to the home directory). Set this or the inline hosts JSON, not both.",
+      "default": ""
+    },
+    "hosts_json": {
+      "type": "string",
+      "title": "Hosts JSON",
+      "description": "Host profiles as inline JSON, for single-host setups. Leave blank when a hosts file is set.",
+      "default": ""
+    }
+  },
   "mcpServers": {
     "wakeonlan-mcp-server": {
       "command": "npx",
@@ -29,7 +43,9 @@
         "@cyanheads/wakeonlan-mcp-server"
       ],
       "env": {
-        "MCP_TRANSPORT_TYPE": "stdio"
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "WOL_HOSTS_FILE": "${user_config.hosts_file}",
+        "WOL_HOSTS": "${user_config.hosts_json}"
       }
     }
   }

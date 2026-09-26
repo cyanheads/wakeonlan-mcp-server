@@ -26,6 +26,18 @@
       ],
       "environmentVariables": [
         {
+          "name": "WOL_HOSTS_FILE",
+          "description": "Absolute path to the JSON hosts file (a leading ~/ expands to the home directory). Mutually exclusive with WOL_HOSTS.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "WOL_HOSTS",
+          "description": "The hosts document as inline JSON, for single-host setups. Mutually exclusive with WOL_HOSTS_FILE.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
           "name": "MCP_LOG_LEVEL",
           "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
           "format": "string",
@@ -77,10 +89,22 @@
         },
         {
           "name": "MCP_AUTH_MODE",
-          "description": "Authentication mode to use: 'none', 'jwt', or 'oauth'.",
+          "description": "Authentication mode to use: 'none', 'jwt', or 'oauth'. Binding MCP_HTTP_HOST to anything but loopback requires jwt or oauth.",
           "format": "string",
           "isRequired": false,
           "default": "none"
+        },
+        {
+          "name": "WOL_HOSTS_FILE",
+          "description": "Absolute path to the JSON hosts file (a leading ~/ expands to the home directory). Mutually exclusive with WOL_HOSTS.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "WOL_HOSTS",
+          "description": "The hosts document as inline JSON, for single-host setups. Mutually exclusive with WOL_HOSTS_FILE.",
+          "format": "string",
+          "isRequired": false
         },
         {
           "name": "MCP_LOG_LEVEL",

@@ -16,7 +16,9 @@
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_AUTH_MODE": "none",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "WOL_HOSTS_FILE": "${user_config.hosts_file}",
+        "WOL_HOSTS": "${user_config.hosts_json}"
       }
     }
   },
@@ -25,5 +27,20 @@
   },
   "tools_generated": true,
   "prompts_generated": true,
-  "user_config": {}
+  "user_config": {
+    "hosts_file": {
+      "type": "file",
+      "title": "Hosts file",
+      "description": "JSON file of host profiles (alias, MAC, address, and optional broadcast and ports). Leave blank if you paste the profiles below instead; set one or the other, not both.",
+      "required": false,
+      "default": ""
+    },
+    "hosts_json": {
+      "type": "string",
+      "title": "Hosts JSON",
+      "description": "Host profiles as inline JSON, for single-host setups. Leave blank when a hosts file is set.",
+      "required": false,
+      "default": ""
+    }
+  }
 }

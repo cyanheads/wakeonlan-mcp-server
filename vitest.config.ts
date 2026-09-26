@@ -17,6 +17,8 @@ export default mergeConfig(
   defineConfig({
     resolve: { alias },
     test: {
+      // Socket tripwire: every project inherits it, so no suite can open a real socket.
+      setupFiles: ['./tests/setup/socket-tripwire.ts'],
       projects: [
         {
           extends: true,

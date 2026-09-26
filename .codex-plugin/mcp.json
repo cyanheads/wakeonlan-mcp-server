@@ -4,6 +4,7 @@
     "args": ["-y", "@cyanheads/wakeonlan-mcp-server"],
     "env": {
       "MCP_TRANSPORT_TYPE": "stdio"
-    }
+    },
+    "env_vars": ["WOL_HOSTS_FILE", "WOL_HOSTS"]
   }
 }
