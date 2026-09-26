@@ -11,19 +11,6 @@
 
 ---
 
-## First Session
-
-This project was just scaffolded with `bunx @cyanheads/mcp-ts-core init`. You're holding a production-grade MCP framework with the hard parts already solved — error handling, telemetry, auth, transport, validation, lifecycle. What's missing is the **domain**. Your job: design the tool, resource, and service surface with the user, then implement it as small pure handlers that throw — the framework catches, classifies, and instruments the rest. Design before code; the user's first messages set direction, so wait for them before scaffolding definitions.
-
-> **Remove this section** from CLAUDE.md / AGENTS.md after completing these steps. The skills and conventions below remain — this block is one-time onboarding only.
-
-1. **Get your bearings.** Take stock of the project tree, the skills in `framework-skills/`, and the tools/MCP servers available. Light tool use is fine for context-building — you're mapping the territory, not committing yet.
-2. **Read the framework docs** — `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` (builders, Context, errors, exports, conventions)
-3. **Run the `setup` skill** — read `framework-skills/setup/SKILL.md` and follow its checklist (project orientation, agent protocol file selection, echo definition cleanup, skill sync)
-4. **Design the server** — read `framework-skills/design-mcp-server/SKILL.md` and work through it with the user to map the domain into tools, resources, and services before scaffolding
-
----
-
 ## What's Next?
 
 When the user asks what's next or needs direction, suggest options based on the current project state. Common next steps:
@@ -63,73 +50,67 @@ Tailor suggestions to what's actually missing or stale — don't recite the full
 
 ```ts
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { getHostRegistry } from '@/services/hosts/host-registry.js';
+import { getLanService, PROBE_TIMEOUT_MS } from '@/services/lan/lan-service.js';
+import { aliasInput, NO_PROFILES_HINT, unknownHostDetails } from '../host-alias.js';
 
-export const searchItems = tool('search_items', {
-  description: 'Search inventory items by query.',
-  annotations: { readOnlyHint: true },
-  input: z.object({
-    query: z.string().describe('Search terms'),
-    limit: z.number().int().min(1).max(100).default(10).describe('Max results (1–100)'),
-  }),
+export const wolCheckHost = tool('wol_check_host', {
+  title: 'Check Host',
+  description: `Check whether a configured host is up right now by opening one TCP connection to its check port … (nothing answered within ${PROBE_TIMEOUT_MS / 1000} seconds) …`,
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+  auth: ['wol:read'],
+  input: z.object({ alias: aliasInput }),
   output: z.object({
-    items: z.array(z.object({
-      id: z.string().describe('Item ID'),
-      name: z.string().describe('Item name'),
-    })).describe('Matching items'),
+    alias: z.string().describe('Canonical alias as configured.'),
+    outcome: z.enum(['open', 'refused', 'no_answer']).describe('open: connected. refused: …'),
+    // … address, check_port, reachable, latency_ms, guidance
   }),
-  auth: ['inventory:read'],
+  errors: [
+    { reason: 'unknown_host', code: JsonRpcErrorCode.NotFound, severity: 'notice',
+      when: 'The alias matches no configured profile.',
+      recovery: 'No host profile has that alias. Retry with one of the configured aliases this error lists, …' },
+    { reason: 'no_address', code: JsonRpcErrorCode.ConfigurationError, severity: 'notice',
+      when: 'The profile has no address, so there is nothing to probe.',
+      recovery: "This host's profile has no address to probe. …" },
+  ],
 
   async handler(input, ctx) {
-    const items = await findItems(input.query, input.limit);
-    ctx.log.info('Search completed', { query: input.query, count: items.length });
-    return { items };
+    const registry = getHostRegistry();
+    const profile = registry.find(input.alias);
+    if (!profile) {
+      const { message, data } = unknownHostDetails(input.alias, registry);
+      throw ctx.fail('unknown_host', message, {
+        ...data,
+        ...(data.configured_count === 0
+          ? { recovery: { hint: NO_PROFILES_HINT } }
+          : ctx.recoveryFor('unknown_host')),
+      });
+    }
+    const { alias, address, check_port } = profile;
+    if (address === undefined) {
+      throw ctx.fail('no_address', `The profile for "${alias}" has no address to probe.`, {
+        alias,
+        ...ctx.recoveryFor('no_address'),
+      });
+    }
+
+    const result = await getLanService().probe(address, check_port, PROBE_TIMEOUT_MS, ctx.signal);
+    ctx.log.info('Probed host', { alias, check_port, outcome: result.outcome });
+    return { alias, address, check_port, reachable: result.outcome === 'open', outcome: result.outcome /* … */ };
   },
 
   // format() populates content[] — the markdown twin of structuredContent.
   // Different clients read different surfaces (Claude Code → structuredContent,
   // Claude Desktop → content[]); both must carry the same data.
   // Enforced at lint time: every field in `output` must appear in the rendered text.
-  format: (result) => [{
-    type: 'text',
-    text: result.items.map(i => `**${i.id}**: ${i.name}`).join('\n'),
-  }],
+  format: (result) => [{ type: 'text', text: `## ${result.alias}: ${result.outcome}\n…` }],
 });
 ```
 
-### Resource
+Tools never take a MAC, IP, broadcast address, or port: every per-host tool resolves an `alias` against the `HostRegistry`, and the check port comes from the profile. A hint or notice that sends the agent to documentation names a `wol_list_reference` topic; add the topic to `src/mcp-server/tools/reference-topics.ts` before a hint points at it.
 
-```ts
-import { resource, z } from '@cyanheads/mcp-ts-core';
-import { notFound } from '@cyanheads/mcp-ts-core/errors';
-
-export const itemData = resource('inventory://{itemId}', {
-  description: 'Fetch an inventory item by ID.',
-  params: z.object({ itemId: z.string().describe('Item identifier') }),
-  auth: ['inventory:read'],
-  async handler(params, ctx) {
-    const item = await ctx.state.get(`item/${params.itemId}`);
-    if (!item) throw notFound(`Item ${params.itemId} not found`, { itemId: params.itemId });
-    return item;
-  },
-});
-```
-
-### Prompt
-
-```ts
-import { prompt, z } from '@cyanheads/mcp-ts-core';
-
-export const reviewCode = prompt('review_code', {
-  description: 'Review code for issues and best practices.',
-  args: z.object({
-    code: z.string().describe('Code to review'),
-    language: z.string().optional().describe('Programming language'),
-  }),
-  generate: (args) => [
-    { role: 'user', content: { type: 'text', text: `Review this ${args.language ?? ''} code:\n${args.code}` } },
-  ],
-});
-```
+This server registers no resources or prompts (see `docs/design.md`); the `add-resource` and `add-prompt` skills carry those patterns if that changes.
 
 ### Server config
 
@@ -139,58 +120,58 @@ import { z } from '@cyanheads/mcp-ts-core';
 import { parseEnvConfig } from '@cyanheads/mcp-ts-core/config';
 
 const ServerConfigSchema = z.object({
-  apiKey: z.string().describe('External API key'),
-  maxResults: z.coerce.number().default(100),
-  verboseLogging: z.stringbool().default(false).describe('Enable verbose logging'),
+  hostsFile: z.string().optional().describe('Absolute path to the JSON hosts file; …'),
+  hostsJson: z.string().optional().describe('The hosts document as inline JSON. …'),
 });
 
-let _config: z.infer<typeof ServerConfigSchema> | undefined;
-export function getServerConfig() {
+let _config: ServerConfig | undefined;
+export function getServerConfig(): ServerConfig {
   _config ??= parseEnvConfig(ServerConfigSchema, {
-    apiKey: 'MY_API_KEY',
-    maxResults: 'MY_MAX_RESULTS',
-    verboseLogging: 'MY_VERBOSE_LOGGING',
+    hostsFile: 'WOL_HOSTS_FILE',
+    hostsJson: 'WOL_HOSTS',
   });
   return _config;
 }
 ```
 
-`parseEnvConfig` maps Zod schema paths → env var names so errors name the variable (`MY_API_KEY`) not the path (`apiKey`). Throws `ConfigurationError`, which the framework prints as a clean startup banner.
+`parseEnvConfig` maps Zod schema paths → env var names so errors name the variable (`WOL_HOSTS_FILE`) not the path (`hostsFile`), and it treats an empty value or an unsubstituted `${…}` placeholder as unset. The two variables are mutually exclusive; `loadHostsConfig()` in `src/services/hosts/hosts-config.ts` enforces that, reads and validates the profiles once at startup, and throws `ConfigurationError`, which the framework prints as a clean startup banner.
 
 For env booleans use `z.stringbool()`, never `z.coerce.boolean()` — `Boolean("false")` is `true`, so a coerced flag can't be disabled through the environment. `z.stringbool()` parses `true/false/1/0/yes/no/on/off` and rejects anything else, so `=false` actually disables.
 
 ### Server identity and instructions
 
-`createApp()` accepts optional identity fields forwarded to the SDK's `initialize` response and the server manifest (`/.well-known/mcp.json`):
+The identity fields in `src/index.ts` are `name` and `title` only, both the unscoped package name (`lint:packaging` enforces the match); `package.json` stays the source of the served description:
 
 ```ts
 await createApp({
-  name: 'my-mcp-server',
-  title: 'My Server',                         // human-readable display name
-  websiteUrl: 'https://github.com/owner/repo', // canonical homepage URL
-  description: 'One-line description.',        // wins over MCP_SERVER_DESCRIPTION
-  icons: [{ src: 'https://example.com/icon.png', sizes: ['48x48'], mimeType: 'image/png' }],
-  instructions: 'Use shortcut alpha for the most common case.', // session-level context
+  name: 'wakeonlan-mcp-server',
+  title: 'wakeonlan-mcp-server',
+  tools: [wolWakeHost, wolCheckHost, wolListHosts, wolListReference],
+  resources: [],
+  prompts: [],
+  instructions: "Wake machines on the operator's local network with Wake-on-LAN and confirm they came up; …",
+  sessionMode: 'stateless',
+  async setup(core) { /* see below */ },
 });
 ```
 
-`instructions` is optional server-level orientation, sent on every `initialize` as session-level context. Use it for deployment guidance (connection aliases, regional notes, scope hints) instead of repeating the same context across tool descriptions. Client adoption is uneven, but there's no downside when set.
+`instructions` is server-level orientation, sent on every `initialize` as session-level context: the alias-only targeting, the `wol_list_hosts` → `wol_wake_host` → `wol_check_host` chain, and the trust boundary for operator-written host descriptions. `docs/design.md` § Server Instructions carries the same text; keep the two in step.
 
-### Session posture and shutdown
-
-Two more `createApp()` options shape how the server runs rather than how it presents itself:
+### Session posture and setup
 
 ```ts
 await createApp({
-  sessionMode: 'stateless',          // or { default: 'stateful', require: 'stateful' }
-  setup(core) { startMyWatcher(core.config); },
-  async teardown() { await stopMyWatcher(); },
+  sessionMode: 'stateless',
+  async setup(core) {
+    assertSafeHttpExposure(core.config);           // refuse an unauthenticated non-loopback bind, or '*' origins
+    const loaded = await loadHostsConfig(getServerConfig()); // zero profiles logs a warning, not an error
+    initHostRegistry(new HostRegistry(loaded));
+    initLanService();
+  },
 });
 ```
 
-`sessionMode` declares the HTTP session posture in `src/` instead of leaving it to a deployment's `MCP_SESSION_MODE`, which still wins whenever it carries a meaningful value (an empty string and an unsubstituted `${…}` placeholder read as unset and fall through to the option). Add `require: 'stateful'` when a tool asks the caller for input mid-handler via `ctx.requestInput`: startup then fails with a `ConfigurationError` rather than serving a mode in which a 2025-era client can never answer the prompt. Stdio is never refused.
-
-`teardown(core)` is the `setup()` counterpart — release a watcher, socket, or non-`unref()`'d timer there. It runs after the transport stops and before the logger closes, on every shutdown path, and a signal-triggered shutdown then exits the process explicitly (0, or 1 if a step never settles within the framework's 10 s ceiling).
+`sessionMode: 'stateless'` because no tool calls `ctx.requestInput`; `.env.example` and the README env table say the same. A deployment's `MCP_SESSION_MODE` still wins whenever it carries a meaningful value. `assertSafeHttpExposure()` (`src/config/http-exposure.ts`) runs first, before any transport starts, so a refused exposure is a startup banner rather than a served endpoint. There is no `teardown`: the wake path opens one UDP socket per call and closes it in `finally`, so nothing outlives a call.
 
 ---
 
@@ -200,15 +181,12 @@ Handlers receive a unified `ctx` object. Key properties:
 
 | Property | Description |
 |:---------|:------------|
-| `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino **and** `notifications/message` to the client, so treat it as client-visible. |
-| `ctx.state` | Tenant-scoped KV — `.get(key)`, `.set(key, value, { ttl? })`, `.delete(key)`, `.getMany(keys)`, `.list(prefix, { cursor, limit })`. Accepts any JSON-serializable value; reads return its JSON form (a `Date` comes back as an ISO string). |
-| `ctx.requestInput` | Suspend and ask the caller for more input — `return ctx.requestInput({ inputRequests: { key: inputRequired.elicit({ message, requestedSchema }) } })`. Never returns; the handler is re-entered with the answers. Always present. |
-| `ctx.inputs` | Reader over a retried request's responses — `.accepted(key, schema)`, `.view(key)`, `.state()`, `.dropped`. Empty on the first round. |
-| `ctx.enrich` | Success-path agent context (empty-result notices, query echo, pagination totals) — `ctx.enrich(...)` or `.notice()` / `.total()` / `.echo()` / `.truncated()`. Reaches `structuredContent` and `content[]`; lands only when the definition declares an `enrichment` block (no-op otherwise). |
-| `ctx.content` | Non-text content blocks — `.image(data, mimeType)`, `.audio(data, mimeType)`, or `ctx.content(block)` for a raw block. Prepended to `content[]` after `format()`; never enters `structuredContent`. |
-| `ctx.signal` | `AbortSignal` for cancellation. |
-| `ctx.requestId` | Unique request ID. |
-| `ctx.tenantId` | Tenant ID from JWT; `'default'` for stdio or HTTP with auth off. |
+| `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino **and** `notifications/message` to the client, so treat it as client-visible: never log a SecureOn value. |
+| `ctx.enrich` | Success-path agent context — `wol_list_hosts` declares an `enrichment` block and writes `.total(n)` on every path plus one `.notice()` (no profiles configured, or some hosts off-segment). A no-op on a definition without the block. |
+| `ctx.signal` | `AbortSignal` for cancellation. `wol_wake_host` and `wol_check_host` pass it to `LanService`, which checks it before the UDP socket opens and before every send, so a cancelled wake sends no further packet. |
+| `ctx.fail` / `ctx.recoveryFor` | Typed throws against each tool's `errors[]` contract (see Errors). |
+
+Nothing here uses `ctx.state` (profiles are process-wide operator config, not tenant data), `ctx.requestInput` / `ctx.inputs` (no tool asks for input, hence `sessionMode: 'stateless'`), or `ctx.content`.
 
 ---
 
@@ -260,20 +238,30 @@ See framework CLAUDE.md and the `api-errors` skill for the full auto-classificat
 
 ```text
 src/
-  index.ts                              # createApp() entry point
+  index.ts                              # createApp() entry point: tools, instructions, setup()
   config/
-    server-config.ts                    # Server-specific env vars (Zod schema)
+    server-config.ts                    # WOL_HOSTS_FILE / WOL_HOSTS (Zod schema)
+    http-exposure.ts                    # assertSafeHttpExposure(): startup guard for HTTP binds
   services/
-    [domain]/
-      [domain]-service.ts               # Domain service (init/accessor pattern)
-      types.ts                          # Domain types
+    hosts/
+      hosts-config.ts                   # Loads + validates profiles from the file or inline JSON
+      host-registry.ts                  # HostRegistry: case-insensitive alias lookup (init/accessor)
+      mac.ts                            # parseMac / parseSecureOn
+      types.ts                          # HostProfile, LoadedHosts
+    lan/
+      lan-service.ts                    # LanService: segment resolution, TCP probe, wake loop (init/accessor)
+      magic-packet.ts                   # buildMagicPacket()
+      segment.ts                        # resolveSegment(): IPv4 subnet math against local interfaces
+      types.ts                          # LanDeps seams, probe and wake results
   mcp-server/
-    tools/definitions/
-      [tool-name].tool.ts               # Tool definitions
-    resources/definitions/
-      [resource-name].resource.ts       # Resource definitions
-    prompts/definitions/
-      [prompt-name].prompt.ts           # Prompt definitions
+    tools/
+      definitions/                      # wake-host, check-host, list-hosts, list-reference (*.tool.ts)
+      host-alias.ts                     # Shared alias input + unknown_host details
+      reference-topics.ts               # Static wol_list_reference content
+      text.ts                           # content[] rendering helpers
+tests/
+  setup/socket-tripwire.ts              # vi.mock of node:dgram / node:net that throws on a real socket
+  helpers/lan-fakes.ts                  # Fake UDP/TCP sockets, interface tables, virtual clock
 ```
 
 ---
@@ -358,11 +346,14 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run format` | Auto-fix formatting (safe fixes only) |
 | `bun run format:unsafe` | Also apply Biome's unsafe autofixes — review the diff; they can change behavior |
 | `bun run test` | Run tests (Vitest — use `bun run test`, not `bun test`) |
+| `bun run test:coverage` | Run tests with coverage |
+| `bun run start` | Run the built server (`node dist/index.js`; transport from `MCP_TRANSPORT_TYPE`) |
 | `bun run start:stdio` | Production mode (stdio) |
 | `bun run start:http` | Production mode (HTTP) |
 | `bun run changelog:build` | Regenerate `CHANGELOG.md` from `changelog/*.md` |
 | `bun run changelog:check` | Verify `CHANGELOG.md` is in sync (used by devcheck) |
-| `bun run bundle` | Build, pack, and clean a `.mcpb` for one-click Claude Desktop install |
+| `bun run bundle` | Build, pack, and clean `dist/wakeonlan-mcp-server.mcpb` for one-click Claude Desktop install |
+| `bun run release:github` | Create the GitHub Release from an annotated tag and attach the `.mcpb` bundle |
 
 **CI is one file.** `.github/workflows/codeql.yml` (scaffolded) is the only GitHub Actions workflow: CodeQL is GitHub-owned end to end, and the file runs only while the repo's CodeQL *default setup* is turned off. Verification — `devcheck`, tests, the release gates — runs locally; don't add a workflow that re-runs it.
 
@@ -432,11 +423,11 @@ import { getMyService } from '@/services/my-domain/my-service.js';
 - [ ] `ctx.log` for logging, `ctx.state` for storage
 - [ ] Handlers throw on failure — error factories or plain `Error`, no try/catch
 - [ ] `format()` renders all data the LLM needs — different clients forward different surfaces (Claude Code → `structuredContent`, Claude Desktop → `content[]`); both must carry the same data
-- [ ] If wrapping external API: raw/domain/output schemas reviewed against real upstream sparsity/nullability before finalizing required vs optional fields
-- [ ] If wrapping external API: normalization and `format()` preserve uncertainty; do not fabricate facts from missing upstream data
-- [ ] If wrapping external API: tests include at least one sparse payload case with omitted upstream fields
-- [ ] Registered in `createApp()` arrays (directly or via barrel exports)
-- [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
+- [ ] `format()` flattens line breaks (CR, LF, VT, FF, NEL, U+2028, U+2029) in OS- or operator-supplied inline values (`flattenLine`) and renders operator free text (`description`) as a blockquote (`blockquote`), never as a heading
+- [ ] No SecureOn value in any output field, `format()` line, log call, or error message — only `secureon_set`
+- [ ] Registered in the `createApp()` arrays in `src/index.ts`
+- [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing` and reach the OS only through the `LanService` / `loadHostsConfig` seams (`tests/helpers/lan-fakes.ts`); the socket tripwire must stay loaded
+- [ ] A new env var lands in `src/config/server-config.ts`, `server.json` (both packages), `manifest.json` (`user_config` + `mcp_config.env`), `.claude-plugin/plugin.json` (`userConfig` + `env`), `.codex-plugin/mcp.json` (`env_vars`), `.env.example`, and the README Configuration table
 - [ ] `.codex-plugin/plugin.json` populated — `name`, `version`, `description`, `repository`, `license` from `package.json`; `interface.displayName` = the unscoped repo name (never the npm scope — `lint:packaging` enforces this); `interface.shortDescription` from `package.json` description
 - [ ] `.codex-plugin/mcp.json` updated — server name key is the unscoped repo name; every user-supplied variable (API key, contact email, instance URL) is listed in `env_vars` so Codex forwards it from the user's environment. Never write `"KEY": ""` into `env` — an empty value replaces the user's exported key and is read as unset
 - [ ] `.claude-plugin/plugin.json` populated — `name`, `version`, `description`, `author`, `repository`, `license`, `keywords` from `package.json`; inline `mcpServers` entry keyed by the unscoped repo name. Every user-supplied variable is declared under `userConfig` (`type`, `title`, `description`; `sensitive: true` for keys and tokens; `required: true` or `default: ""`) and referenced from `env` as `"KEY": "${user_config.<option>}"` — mirror the `user_config` block in `manifest.json`. Never write `"KEY": ""` into `env`

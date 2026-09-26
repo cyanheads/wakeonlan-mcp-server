@@ -8,7 +8,7 @@ Open one from the **Issues** tab and pick the **Bug Report** or **Feature Reques
 
 `wakeonlan-mcp-server` is built on [@cyanheads/mcp-ts-core](https://github.com/cyanheads/mcp-ts-core), which handles transports, auth, config, logging, and telemetry. Sorting out which layer broke saves everyone a round-trip:
 
-- **This repo** — a tool returns wrong data, an upstream API call fails, a schema doesn't match reality, a description misleads the model.
+- **This repo** — a tool returns wrong data, a wake or reachability probe misbehaves, a schema doesn't match reality, a description misleads the model.
 - **[mcp-ts-core](https://github.com/cyanheads/mcp-ts-core/issues)** — a builder rejects valid input, `createApp()` fails on a valid config, a `Context` method behaves contrary to its docs, transport or auth misbehaves regardless of which tool you call.
 
 If you're not sure, file here and it'll get routed.

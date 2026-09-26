@@ -2,7 +2,7 @@
   "name": "@cyanheads/wakeonlan-mcp-server",
   "version": "0.1.0",
   "mcpName": "io.github.cyanheads/wakeonlan-mcp-server",
-  "description": "Wake LAN machines with Wake-on-LAN magic packets from operator-configured host profiles, then confirm they came up.",
+  "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up via MCP. STDIO or Streamable HTTP.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -50,7 +50,11 @@
     "wol",
     "magic-packet",
     "homelab",
-    "lan"
+    "lan",
+    "typescript",
+    "bun",
+    "stdio",
+    "streamable-http"
   ],
   "repository": {
     "type": "git",

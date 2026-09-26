@@ -1,7 +1,7 @@
 {
   "name": "wakeonlan-mcp-server",
   "version": "0.1.0",
-  "description": "Wake LAN machines with Wake-on-LAN magic packets from operator-configured host profiles, then confirm they came up.",
+  "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up.",
   "author": {
     "name": "cyanheads",
     "email": "casey@caseyjhand.com",
@@ -23,7 +23,7 @@
   "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "wakeonlan-mcp-server",
-    "shortDescription": "Wake LAN machines with Wake-on-LAN magic packets from operator-configured host profiles, then confirm they came up.",
+    "shortDescription": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up.",
     "longDescription": "Wake a sleeping desktop, NAS, or lab machine by name and find out whether it came up. Hosts are profiles in the operator's config (MAC, address, broadcast, ports), so a call takes an alias rather than a raw MAC. A wake sends magic packets, then polls a TCP port such as SSH until the machine answers or the wait window ends. The server runs on a machine on the same LAN as the hosts it wakes.",
     "developerName": "cyanheads",
     "category": "hardware",

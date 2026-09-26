@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cyanheads/wakeonlan-mcp-server",
-  "description": "Wake LAN machines with Wake-on-LAN packets from configured host profiles, then confirm they came up.",
+  "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up.",
   "repository": {
     "url": "https://github.com/cyanheads/wakeonlan-mcp-server",
     "source": "github"
@@ -35,7 +35,8 @@
           "name": "WOL_HOSTS",
           "description": "The hosts document as inline JSON, for single-host setups. Mutually exclusive with WOL_HOSTS_FILE.",
           "format": "string",
-          "isRequired": false
+          "isRequired": false,
+          "isSecret": true
         },
         {
           "name": "MCP_LOG_LEVEL",
@@ -89,7 +90,7 @@
         },
         {
           "name": "MCP_AUTH_MODE",
-          "description": "Authentication mode to use: 'none', 'jwt', or 'oauth'. Binding MCP_HTTP_HOST to anything but loopback requires jwt or oauth.",
+          "description": "Authentication mode to use: 'none', 'jwt', or 'oauth'. The server refuses to start without jwt or oauth when MCP_HTTP_HOST is not a loopback address or MCP_ALLOWED_ORIGINS is '*'.",
           "format": "string",
           "isRequired": false,
           "default": "none"
@@ -104,7 +105,8 @@
           "name": "WOL_HOSTS",
           "description": "The hosts document as inline JSON, for single-host setups. Mutually exclusive with WOL_HOSTS_FILE.",
           "format": "string",
-          "isRequired": false
+          "isRequired": false,
+          "isSecret": true
         },
         {
           "name": "MCP_LOG_LEVEL",

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "wakeonlan-mcp-server",
   "version": "0.1.0",
-  "description": "Wake LAN machines with Wake-on-LAN magic packets from operator-configured host profiles, then confirm they came up.",
+  "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up.",
   "author": { "name": "cyanheads" },
   "homepage": "https://github.com/cyanheads/wakeonlan-mcp-server#readme",
   "license": "Apache-2.0",
@@ -38,7 +38,8 @@
     "hosts_json": {
       "type": "string",
       "title": "Hosts JSON",
-      "description": "Host profiles as inline JSON, for single-host setups. Leave blank when a hosts file is set.",
+      "description": "Host profiles as inline JSON, for single-host setups. Leave blank when a hosts file is set. Stored as a secret because a profile can carry a SecureOn password.",
+      "sensitive": true,
       "required": false,
       "default": ""
     }

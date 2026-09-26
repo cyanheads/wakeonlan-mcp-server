@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "wakeonlan-mcp-server",
   "version": "0.1.0",
-  "description": "Wake LAN machines with Wake-on-LAN magic packets from operator-configured host profiles, then confirm they came up.",
+  "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up.",
   "author": {
     "name": "cyanheads",
     "email": "casey@caseyjhand.com",
@@ -32,6 +32,7 @@
       "type": "string",
       "title": "Hosts JSON",
       "description": "Host profiles as inline JSON, for single-host setups. Leave blank when a hosts file is set.",
+      "sensitive": true,
       "default": ""
     }
   },
