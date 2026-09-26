@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "wakeonlan-mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up.",
   "author": { "name": "cyanheads" },
   "homepage": "https://github.com/cyanheads/wakeonlan-mcp-server#readme",

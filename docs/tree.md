@@ -1,6 +1,6 @@
 # wakeonlan-mcp-server - Directory Structure
 
-Generated on: 2026-09-26 16:04:31
+Generated on: 2026-09-26 17:05:40
 
 ```text
 wakeonlan-mcp-server/
@@ -24,6 +24,7 @@ wakeonlan-mcp-server/
 │   ├── extensions.json
 │   └── settings.json
 ├── changelog/
+│   ├── 0.1.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
@@ -197,6 +198,7 @@ wakeonlan-mcp-server/
 ├── biome.json
 ├── bun.lock
 ├── bunfig.toml
+├── CHANGELOG.md
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── LICENSE
