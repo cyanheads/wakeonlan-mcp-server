@@ -2,9 +2,9 @@
 
 **Server:** wakeonlan-mcp-server
 **Version:** 0.1.1
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.8`
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.14`
 **Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` ^2.0.0
+**MCP SDK:** `@modelcontextprotocol/server` ^2.2.0
 **Zod:** ^4.6.5
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
@@ -82,17 +82,12 @@ export const wolCheckHost = tool('wol_check_host', {
       const { message, data } = unknownHostDetails(input.alias, registry);
       throw ctx.fail('unknown_host', message, {
         ...data,
-        ...(data.configured_count === 0
-          ? { recovery: { hint: NO_PROFILES_HINT } }
-          : ctx.recoveryFor('unknown_host')),
+        ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
       });
     }
     const { alias, address, check_port } = profile;
     if (address === undefined) {
-      throw ctx.fail('no_address', `The profile for "${alias}" has no address to probe.`, {
-        alias,
-        ...ctx.recoveryFor('no_address'),
-      });
+      throw ctx.fail('no_address', `The profile for "${alias}" has no address to probe.`, { alias });
     }
 
     const result = await getLanService().probe(address, check_port, PROBE_TIMEOUT_MS, ctx.signal);
@@ -184,9 +179,10 @@ Handlers receive a unified `ctx` object. Key properties:
 | `ctx.log` | Request-scoped logger — `.debug()`, `.info()`, `.notice()`, `.warning()`, `.error()`. Auto-correlates requestId, traceId, tenantId. Dual-sink: Pino **and** `notifications/message` to the client, so treat it as client-visible: never log a SecureOn value. |
 | `ctx.enrich` | Success-path agent context — `wol_list_hosts` declares an `enrichment` block and writes `.total(n)` on every path plus one `.notice()` (no profiles configured, or some hosts off-segment). A no-op on a definition without the block. |
 | `ctx.signal` | `AbortSignal` for cancellation. `wol_wake_host` and `wol_check_host` pass it to `LanService`, which checks it before the UDP socket opens and before every send, so a cancelled wake sends no further packet. |
-| `ctx.fail` / `ctx.recoveryFor` | Typed throws against each tool's `errors[]` contract (see Errors). |
+| `ctx.fail` | Typed throws against each tool's `errors[]` contract; the declared `recovery` fills automatically (see Errors). |
+| `ctx.requestId` | Request ID — the one every log record of the call carries and its error envelope returns as `data.requestId`. |
 
-Nothing here uses `ctx.state` (profiles are process-wide operator config, not tenant data), `ctx.requestInput` / `ctx.inputs` (no tool asks for input, hence `sessionMode: 'stateless'`), or `ctx.content`.
+Nothing here uses `ctx.state` (profiles are process-wide operator config, not tenant data), `ctx.requestInput` / `ctx.inputs` / `ctx.clientCapabilities` (no tool asks for input, hence `sessionMode: 'stateless'`), or `ctx.content`.
 
 ---
 
@@ -194,7 +190,7 @@ Nothing here uses `ctx.state` (profiles are process-wide operator config, not te
 
 Handlers throw — the framework catches, classifies, and formats.
 
-**Recommended: typed error contract.** Declare `errors: [{ reason, code, when, recovery, retryable?, severity?, thrownBy? }]` on `tool()` / `resource()` to receive `ctx.fail(reason, …)` typed against the reason union. TypeScript catches typos at compile time, `data.reason` is auto-populated for observability, linter enforces conformance against the handler body. `recovery` is required (≥ 5 words, lint-validated) — the single source of truth for the agent's next move. Pass `ctx.recoveryFor('reason')` as the throw's data to put it on the wire (`data.recovery.hint`, mirrored into `content[]` text unless the message already contains it verbatim); override with an explicit `{ recovery: { hint: '...' } }` when dynamic runtime context matters. Forwarding it is lint-enforced per throw site (`error-contract-recovery-unforwarded`). Mark an entry the service layer throws with `thrownBy: 'service'` so `error-contract-unthrown` skips it — lint-only metadata, nothing at runtime reads it. Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationError`, `SerializationError`, `RequestCancelled`) bubble freely and don't need declaring.
+**Recommended: typed error contract.** Declare `errors: [{ reason, code, when, recovery, retryable?, severity?, thrownBy? }]` on `tool()` / `resource()` to receive `ctx.fail(reason, …)` typed against the reason union. TypeScript catches typos at compile time, `data.reason` is auto-populated for observability, linter enforces conformance against the handler body. `recovery` is required (≥ 5 words, lint-validated) — the single source of truth for the agent's next move. The framework puts it on the wire whenever a failure carrying that `reason` arrives without a hint — a bare `ctx.fail('reason')` or a service throw with `data: { reason }` — as `data.recovery.hint`, mirrored into `content[]` text unless the message already contains it verbatim; override with an explicit `{ recovery: { hint: '...' } }` when dynamic runtime context matters. Every error envelope also carries `data.requestId`, the id the server's log records for that call carry, and `content[]` closes with `(reason … · request <id>)`. Mark an entry the service layer throws with `thrownBy: 'service'` so `error-contract-unthrown` skips it — lint-only metadata, nothing at runtime reads it. Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationError`, `SerializationError`, `RequestCancelled`) bubble freely and don't need declaring.
 
 ```ts
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
@@ -206,7 +202,7 @@ errors: [
 ],
 async handler(input, ctx) {
   const item = await db.find(input.id);
-  if (!item) throw ctx.fail('no_match', `No item ${input.id}`, ctx.recoveryFor('no_match'));
+  if (!item) throw ctx.fail('no_match', `No item ${input.id}`);
   return item;
 }
 ```
@@ -398,7 +394,7 @@ security: false                            # optional — true ONLY for a source
 
 ## Publishing
 
-**Every release goes through a release PR, straight-through** — `git-wrapup`'s "Release PR mode", mode `straight-through`. One run: `git-wrapup` lands the commit stack on `release/<version>`, pushes it, and opens the PR (title = the release commit subject, body = the changelog entry plus a gates section); `release-and-publish` then fast-forwards `main` locally with `git merge --ff-only`, creates the tag on `main`'s tip, pushes `main` and the tag, deletes the branch, and publishes. A caller's brief may run a given release as `gated` instead — a `release-pr-review` pass on the open PR before `release-and-publish`. **Never merge through the GitHub UI or `gh pr merge`**: squash and rebase-merge are disabled in the repo settings because both rewrite the stack (rebase-merge also strips the SSH signatures), and a merge commit breaks the linear history.
+**Every release goes through a release PR, straight-through** — `git-wrapup`'s "Release PR mode", mode `straight-through`. One run: `git-wrapup` lands the commit stack on `release/<version>`, pushes it, and opens the PR (title = the release commit subject, body = the release digest: theme line, `## Changes`, `## Gates`, changelog link last); `release-and-publish` then fast-forwards `main` locally with `git merge --ff-only`, creates the tag on `main`'s tip, pushes `main` and the tag, deletes the branch, and publishes. A caller's brief may run a given release as `gated` instead — a `release-pr-review` pass on the open PR before `release-and-publish`. **Never merge through the GitHub UI or `gh pr merge`**: squash and rebase-merge are disabled in the repo settings because both rewrite the stack (rebase-merge also strips the SSH signatures), and a merge commit breaks the linear history.
 
 ---
 

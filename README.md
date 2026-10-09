@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.0.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/wakeonlan-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/wakeonlan-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.2.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/wakeonlan-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/wakeonlan-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -269,13 +269,13 @@ A startup guard refuses any HTTP deployment that would let an unauthenticated ca
 
 The image is Linux-only. It can wake hosts only when run with `--network host` (or on a macvlan network) on a Linux machine attached to their LAN, such as a Raspberry Pi, NAS, or home server that already runs Docker. On a default bridge network the container sees only Docker's private subnet, so `wol_wake_host` fails with `off_segment` before sending anything. Docker Desktop on macOS and Windows runs containers in a VM, so its broadcasts can't reach the LAN in any network mode.
 
-Build the image from a clone of this repository:
+Pull the published multi-arch image (`linux/amd64`, `linux/arm64`):
 
 ```sh
-docker build -t wakeonlan-mcp-server .
+docker pull ghcr.io/cyanheads/wakeonlan-mcp-server:latest
 ```
 
-Then add it to your MCP client configuration on that machine. The [hosts file](#host-profiles) is mounted read-only from an absolute host path, and `WOL_HOSTS_FILE` names where it sits inside the container:
+Or build it from a clone of this repository with `docker build -t ghcr.io/cyanheads/wakeonlan-mcp-server:latest .`. Then add it to your MCP client configuration on that machine. The [hosts file](#host-profiles) is mounted read-only from an absolute host path, and `WOL_HOSTS_FILE` names where it sits inside the container:
 
 ```json
 {
@@ -289,7 +289,7 @@ Then add it to your MCP client configuration on that machine. The [hosts file](#
         "-v", "/path/to/hosts.json:/etc/wakeonlan/hosts.json:ro",
         "-e", "MCP_TRANSPORT_TYPE=stdio",
         "-e", "WOL_HOSTS_FILE=/etc/wakeonlan/hosts.json",
-        "wakeonlan-mcp-server"
+        "ghcr.io/cyanheads/wakeonlan-mcp-server:latest"
       ]
     }
   }
