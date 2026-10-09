@@ -224,8 +224,8 @@ describe('wol_check_host — input', () => {
 
 describe('wol_check_host — errors', () => {
   it('unknown_host: lists the configured aliases with the contract recovery', async () => {
-    const { error, fakes } = await checkFailure({ alias: 'nope' });
-    expect(error).toMatchObject({
+    const { result, fakes } = await check({ alias: 'nope' });
+    expect(errorOf(result)).toMatchObject({
       code: JsonRpcErrorCode.NotFound,
       data: {
         reason: 'unknown_host',
@@ -249,7 +249,8 @@ describe('wol_check_host — errors', () => {
   });
 
   it('no_address: refuses a profile with nothing to probe', async () => {
-    const { error, fakes } = await checkFailure({ alias: 'printer' });
+    const { result, fakes } = await check({ alias: 'printer' });
+    const error = errorOf(result);
     expect(error).toMatchObject({
       code: JsonRpcErrorCode.ConfigurationError,
       data: {

@@ -62,16 +62,13 @@ export const wolCheckHost = tool('wol_check_host', {
       const { message, data } = unknownHostDetails(input.alias, registry);
       throw ctx.fail('unknown_host', message, {
         ...data,
-        ...(data.configured_count === 0
-          ? { recovery: { hint: NO_PROFILES_HINT } }
-          : ctx.recoveryFor('unknown_host')),
+        ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
       });
     }
     const { alias, address, check_port } = profile;
     if (address === undefined) {
       throw ctx.fail('no_address', `The profile for "${alias}" has no address to probe.`, {
         alias,
-        ...ctx.recoveryFor('no_address'),
       });
     }
 

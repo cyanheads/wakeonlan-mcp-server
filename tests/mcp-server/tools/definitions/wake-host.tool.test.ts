@@ -85,7 +85,7 @@ describe('wol_wake_host — input', () => {
     expect(parse({ alias: 'gpu-box', wait_for_s: wait }).success).toBe(true);
   });
 
-  it.each([-1, 56, 2.5, '30', null, Number.NaN])('rejects wait_for_s %j', (wait) => {
+  it.each([-1, 56, 2.5, 'thirty', true, Number.NaN])('rejects wait_for_s %j', (wait) => {
     expect(parse({ alias: 'gpu-box', wait_for_s: wait }).success).toBe(false);
   });
 
@@ -341,7 +341,8 @@ describe('wol_wake_host — SecureOn', () => {
 
 describe('wol_wake_host — unknown_host', () => {
   it('names the submitted alias and lists the configured ones, with the contract recovery', async () => {
-    const { error, fakes } = await wakeFailure({ alias: 'gpu-box2' });
+    const { result, fakes } = await wake({ alias: 'gpu-box2' });
+    const error = errorOf(result);
     expect(error).toMatchObject({
       code: JsonRpcErrorCode.NotFound,
       data: {
@@ -408,7 +409,8 @@ describe('wol_wake_host — unknown_host', () => {
 
 describe('wol_wake_host — off_segment', () => {
   it('refuses a host whose broadcast cannot be derived, naming the address and the subnets compared', async () => {
-    const { error, fakes } = await wakeFailure({ alias: 'cabin-pc' });
+    const { result, fakes } = await wake({ alias: 'cabin-pc' });
+    const error = errorOf(result);
     expect(error).toMatchObject({
       code: JsonRpcErrorCode.ConfigurationError,
       data: {
@@ -482,7 +484,8 @@ describe('wol_wake_host — socket_error', () => {
     ['send', { failSend: { nth: 2, error: coded('ENETUNREACH') } }, 1, 'ENETUNREACH'],
     ['send', { failSend: { nth: 3, error: coded('ENOBUFS') } }, 2, 'ENOBUFS'],
   ] as const)('reports stage %s with %j', async (stage, udp, packetsSent, code) => {
-    const { error, fakes } = await wakeFailure({ alias: 'gpu-box', wait_for_s: 0 }, { udp });
+    const { result, fakes } = await wake({ alias: 'gpu-box', wait_for_s: 0 }, { udp });
+    const error = errorOf(result);
     expect(error).toMatchObject({
       code: JsonRpcErrorCode.ServiceUnavailable,
       data: {
@@ -540,17 +543,16 @@ describe('wol_wake_host — socket_error', () => {
 
   it('swaps in the macOS Local Network hint on darwin only', async () => {
     const udp = { bindError: coded('EHOSTUNREACH') };
-    const darwin = await wakeFailure(
-      { alias: 'gpu-box', wait_for_s: 0 },
-      { udp, platform: 'darwin' },
-    );
-    const hint = (darwin.error.data as { recovery?: { hint?: string } }).recovery?.hint;
+    const darwin = await wake({ alias: 'gpu-box', wait_for_s: 0 }, { udp, platform: 'darwin' });
+    const hint = (errorOf(darwin.result).data as { recovery?: { hint?: string } }).recovery?.hint;
     expect(hint).not.toBe(recoveryFor('socket_error'));
     expect(hint).toContain('Local Network');
 
     for (const platform of ['linux', 'win32'] as const) {
-      const other = await wakeFailure({ alias: 'gpu-box', wait_for_s: 0 }, { udp, platform });
-      expect(other.error.data).toMatchObject({ recovery: { hint: recoveryFor('socket_error') } });
+      const other = await wake({ alias: 'gpu-box', wait_for_s: 0 }, { udp, platform });
+      expect(errorOf(other.result).data).toMatchObject({
+        recovery: { hint: recoveryFor('socket_error') },
+      });
     }
   });
 

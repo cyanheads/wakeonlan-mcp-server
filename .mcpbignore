@@ -3,11 +3,15 @@
 /.claude/
 /.agents/
 /framework-skills/
+/docs/idea.md
 /logs/
+/Dockerfile
 /bun.lock
 /bunfig.toml
 /wrangler.toml
 /biome.json
 /tsconfig*.json
 /vitest.config.ts
-/docs/idea.md
+/.cache/
+/coverage/
+/tests/

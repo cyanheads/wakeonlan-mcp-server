@@ -157,9 +157,7 @@ export const wolWakeHost = tool('wol_wake_host', {
       const { message, data } = unknownHostDetails(input.alias, registry);
       throw ctx.fail('unknown_host', message, {
         ...data,
-        ...(data.configured_count === 0
-          ? { recovery: { hint: NO_PROFILES_HINT } }
-          : ctx.recoveryFor('unknown_host')),
+        ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
       });
     }
     const { alias } = profile;
@@ -177,7 +175,6 @@ export const wolWakeHost = tool('wol_wake_host', {
         alias,
         ...(segment.broadcast !== undefined && { broadcast: segment.broadcast }),
         local_subnets: segment.localSubnets,
-        ...ctx.recoveryFor('off_segment'),
       });
     }
 
@@ -186,7 +183,7 @@ export const wolWakeHost = tool('wol_wake_host', {
       throw ctx.fail(
         'wake_in_progress',
         `A wake of "${alias}" is already running; only one wake of a host runs at a time, and nothing was sent.`,
-        { alias, ...ctx.recoveryFor('wake_in_progress') },
+        { alias },
       );
     }
     if (result.kind === 'send_failed') {
@@ -199,9 +196,7 @@ export const wolWakeHost = tool('wol_wake_host', {
           packets_sent: result.packetsSent,
           packets_planned: PACKET_COUNT,
           ...(result.code !== undefined && { code: result.code }),
-          ...(lan.platform === 'darwin'
-            ? { recovery: { hint: DARWIN_SOCKET_HINT } }
-            : ctx.recoveryFor('socket_error')),
+          ...(lan.platform === 'darwin' && { recovery: { hint: DARWIN_SOCKET_HINT } }),
         },
       );
     }
