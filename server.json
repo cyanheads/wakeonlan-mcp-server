@@ -6,14 +6,14 @@
     "url": "https://github.com/cyanheads/wakeonlan-mcp-server",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/wakeonlan-mcp-server",
       "runtimeHint": "npx",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "environmentVariables": [
         {
           "name": "WOL_HOSTS_FILE",
@@ -45,7 +45,7 @@
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/wakeonlan-mcp-server",
       "runtimeHint": "npx",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "environmentVariables": [
         {
           "name": "MCP_TRANSPORT_TYPE",
