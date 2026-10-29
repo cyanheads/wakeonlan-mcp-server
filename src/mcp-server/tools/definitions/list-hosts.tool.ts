@@ -5,6 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { getHostRegistry } from '@/services/hosts/host-registry.js';
 import { getLanService } from '@/services/lan/lan-service.js';
 import { blockquote, flattenLine } from '../text.js';
@@ -136,7 +137,10 @@ export const wolListHosts = tool('wol_list_hosts', {
   },
 
   format: (result) => {
-    const path = result.config_path !== undefined ? ` at ${flattenLine(result.config_path)}` : '';
+    const path =
+      result.config_path !== undefined
+        ? ` at ${escapeMarkdownInline(flattenLine(result.config_path))}`
+        : '';
     const lines = [
       `**Config source:** ${result.config_source} (${SOURCE_LABELS[result.config_source]}${path})`,
     ];
@@ -152,7 +156,7 @@ export const wolListHosts = tool('wol_list_hosts', {
       );
       const via =
         host.interface !== undefined
-          ? ` via ${flattenLine(host.interface)} (${host.local_address ?? 'no IPv4 address'})`
+          ? ` via ${escapeMarkdownInline(flattenLine(host.interface))} (${host.local_address ?? 'no IPv4 address'})`
           : '';
       lines.push(`- **on_segment:** ${host.on_segment ? 'yes' : 'no'}${via}`);
       lines.push(`- **secureon_set:** ${host.secureon_set ? 'yes' : 'no'}`);

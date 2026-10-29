@@ -6,6 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { getHostRegistry } from '@/services/hosts/host-registry.js';
 import { getLanService, PACKET_COUNT, POLL_INTERVAL_MS } from '@/services/lan/lan-service.js';
 import type { WakeResult } from '@/services/lan/types.js';
@@ -242,7 +243,7 @@ export const wolWakeHost = tool('wol_wake_host', {
       );
     }
     lines.push(
-      `- **Packets:** ${result.packets_sent} → ${result.broadcast}:${result.wol_port} via ${flattenLine(result.interface)} (${result.local_address}), secureon_set: ${result.secureon_set ? 'yes' : 'no'}`,
+      `- **Packets:** ${result.packets_sent} → ${result.broadcast}:${result.wol_port} via ${escapeMarkdownInline(flattenLine(result.interface))} (${result.local_address}), secureon_set: ${result.secureon_set ? 'yes' : 'no'}`,
       `- **MAC:** ${result.mac}`,
       `- **Elapsed:** ${result.elapsed_ms} ms`,
     );

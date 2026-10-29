@@ -9,6 +9,7 @@
 
 import type { NetworkInterfaceInfo } from 'node:os';
 import type { runToolContract } from '@cyanheads/mcp-ts-core/testing';
+import MarkdownIt from 'markdown-it';
 import { HostRegistry, initHostRegistry } from '@/services/hosts/host-registry.js';
 import { loadHostsConfig } from '@/services/hosts/hosts-config.js';
 import type { InterfaceTable } from '@/services/lan/segment.js';
@@ -89,6 +90,36 @@ export const LINE_BREAKS = [
 /** Split rendered text into lines at any of {@link LINE_BREAKS}. */
 export function renderedLines(text: string): string[] {
   return text.split(/\r\n|[\n\v\f\r\u{85}\u{2028}\u{2029}]/u);
+}
+
+const commonmark = new MarkdownIt('commonmark');
+
+/**
+ * Read rendered `content[]` text back through a CommonMark parse, as a client
+ * does: the text of every heading, and the lines inside every blockquote, with
+ * Markdown escapes resolved.
+ */
+export function parseMarkdown(text: string): { headings: string[]; quotedLines: string[] } {
+  const headings: string[] = [];
+  const quotedLines: string[] = [];
+  let quoteDepth = 0;
+  let inHeading = false;
+  for (const token of commonmark.parse(text, {})) {
+    if (token.type === 'blockquote_open') quoteDepth++;
+    else if (token.type === 'blockquote_close') quoteDepth--;
+    else if (token.type === 'heading_open') inHeading = true;
+    else if (token.type === 'heading_close') inHeading = false;
+    else if (token.type === 'inline') {
+      const plain = (token.children ?? [])
+        .map((child) =>
+          child.type === 'softbreak' || child.type === 'hardbreak' ? '\n' : child.content,
+        )
+        .join('');
+      if (inHeading) headings.push(plain);
+      else if (quoteDepth > 0) quotedLines.push(...plain.split('\n'));
+    }
+  }
+  return { headings, quotedLines };
 }
 
 /** The SecureOn password the fixtures carry, as the operator typed it and as stored. */

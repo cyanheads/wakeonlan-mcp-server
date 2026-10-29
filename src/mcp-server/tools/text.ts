@@ -5,6 +5,7 @@
  */
 
 import { isIPv6 } from 'node:net';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 
 /** `address:port`, bracketing an IPv6 literal so the port stays unambiguous. */
 export function hostPort(address: string, port: number): string {
@@ -21,11 +22,15 @@ export function flattenLine(text: string): string {
   return text.replace(/[\n\v\f\r\u{85}\u{2028}\u{2029}]+/gu, ' ');
 }
 
-/** Render text as a markdown blockquote, `> ` before every line, splitting at the breaks {@link flattenLine} flattens. */
+/**
+ * Render text as a markdown blockquote, `> ` before every line, splitting at the
+ * breaks {@link flattenLine} flattens. Each line is escaped so a CommonMark
+ * parse reads the text back as written.
+ */
 export function blockquote(text: string): string {
   return text
     .split(/\r\n|[\n\v\f\r\u{85}\u{2028}\u{2029}]/u)
-    .map((line) => `> ${line}`)
+    .map((line) => `> ${escapeMarkdownInline(line)}`)
     .join('\n');
 }
 
