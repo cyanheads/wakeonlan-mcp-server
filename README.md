@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.2.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/wakeonlan-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/wakeonlan-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.2-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.4.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/wakeonlan-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/wakeonlan-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -23,7 +23,7 @@
 
 ## Overview
 
-Wake-on-LAN for the machines on your local network, addressed by the aliases in your host profiles. Wake a sleeping desktop, GPU box, NAS, or lab machine, wait until it answers on a TCP port such as SSH, check whether a host is up without waking it, and work through a wake that didn't take. Runs as a stdio process or a local Streamable HTTP server on a machine attached to the same LAN as the hosts it wakes.
+Wake-on-LAN by name for the machines on your network. Wake a sleeping desktop, GPU box, NAS, or lab machine, wait until it answers on a port like SSH, check whether a host is up without waking it, and troubleshoot a wake that didn't take. Runs on any machine on the same LAN as its hosts.
 
 ### Tools
 
@@ -33,6 +33,14 @@ Wake-on-LAN for the machines on your local network, addressed by the aliases in 
 | `wol_check_host` | Probe a configured host's check port once, without sending a magic packet |
 | `wol_list_hosts` | List the host profiles and whether this machine is attached to each host's subnet |
 | `wol_list_reference` | Wake-on-LAN reference by topic: packet format, target setup, power states, troubleshooting, profile format, sender traps |
+
+### Skills
+
+| Skill | Description |
+|:---|:---|
+| `wakeonlan-guide` | When a wake is warranted versus a status check, how to read `refused`, `no_answer`, and `not_reachable` before calling a machine off or a wake failed, which wake-failure checks need a person at the target, and how to add a host |
+
+Served over MCP as `skill://wakeonlan-guide/SKILL.md` and shipped in the npm package under `skills/`.
 
 ## Capability reference
 
@@ -80,7 +88,7 @@ Agent-friendly output:
 
 - Results, not errors, for every wait outcome: `state` plus a `guidance` next step naming the tool or reference topic to call
 - Typed failures with recovery hints: `unknown_host` lists up to 20 configured aliases, `off_segment` names the local subnets it compared, and on macOS `socket_error` points at the Local Network permission
-- `refused` vs `no_answer`: a machine that is on but not listening on its check port reads differently from one that never answered, so a wrong `check_port` doesn't look like a failed wake
+- `refused` vs `no_answer`: a machine that is on but not listening on its check port reads differently from one that never answered. A wake still ends `not_reachable` either way; `probe.last_outcome` and `guidance` say which, so a wrong `check_port` can be told apart from a failed wake
 
 ## Getting started
 

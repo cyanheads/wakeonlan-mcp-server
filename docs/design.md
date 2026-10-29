@@ -19,6 +19,14 @@ None. Every piece of data is reachable through the four tools; a `wol://hosts` r
 
 None.
 
+### Skills
+
+| Name | Covers |
+|:-----|:-------|
+| `wakeonlan-guide` | Calling-agent gates the tool descriptions don't carry: wake versus check, reading `refused` / `no_answer` / `not_reachable`, the troubleshooting checks that need a person at the target, adding a host. |
+
+Lives in `skills/wakeonlan-guide/SKILL.md` and is served with `createApp({ skills: 'skills' })`, which lists it in `resources/list` as `skill://wakeonlan-guide/SKILL.md` alongside the `skill://{+path}` template. It restates no schema, description, or server instruction.
+
 ## Overview
 
 Wake-on-LAN (WoL) powers on a sleeping or soft-off machine when its network card sees a magic packet: 6 bytes of `0xFF` followed by the target's 6-byte MAC address repeated 16 times, optionally followed by a 6-byte SecureOn password. This server gives an agent a reliable "turn that box on and tell me when it's up" primitive over named host profiles the operator configures. The agent never handles raw MACs or broadcast math.
@@ -116,7 +124,7 @@ Dynamic overrides at the throw site:
 - `wake_in_progress` message names the alias and says nothing was sent. `data`: `{ alias }`.
 - `socket_error` message names the stage and progress: "The UDP send failed at `<stage>` after `<n>` of 3 packets: `<errno code>`." On `process.platform === 'darwin'`, the recovery hint is "On macOS 15 and later, the user must allow Local Network access for the app that launched this server (System Settings > Privacy & Security > Local Network); the first send after that prompt appears can fail before it is answered. Retry wol_wake_host once access is allowed, and call wol_list_reference with topic sender-environment if it still fails." `data`: `{ alias, stage: 'bind' | 'set_broadcast' | 'send', packets_sent, packets_planned, code? }`.
 
-**format():** a heading with the alias and state, then one line each for the probe verdict (address:port, attempts, last outcome, and for `awake` how long after the first packet the connecting poll answered, labeled an upper bound because polls run every 2 s), packets (`3 → 192.0.2.255:9 via en0 (192.0.2.10)`, `secureon_set` yes/no), MAC, and elapsed time. `guidance` renders as a blockquote. Line breaks in the OS-supplied `interface` name are flattened to a space. Every output field appears (`format-parity`).
+**format():** a heading with the alias and state, then one line each for the probe verdict (address:port, attempts, last outcome, and for `awake` how long after the first packet the connecting poll answered, labeled an upper bound because polls run every 2 s), packets (`3 → 192.0.2.255:9 via en0 (192.0.2.10)`, `secureon_set` yes/no), MAC, and elapsed time. `guidance` renders as a blockquote. Line breaks in the OS-supplied `interface` name are flattened to a space, and the name is escaped with `escapeMarkdownInline` so a CommonMark parse reads it back as written. Every output field appears (`format-parity`).
 
 ### `wol_check_host`
 
@@ -189,7 +197,7 @@ No input.
 
 No declared errors: config problems fail at startup.
 
-**format():** one section per host. Each heading is the alias, and the field lines follow. `description` is operator free text: render it as a blockquote (every line prefixed `> `, split at every line break). Line breaks in `interface` names and `config_path` are flattened to a space, since both are interpolated inline. "Line break" means every Unicode mandatory break (see Design Decisions). `structuredContent` keeps every value verbatim.
+**format():** one section per host. Each heading is the alias, and the field lines follow. `description` is operator free text: render it as a blockquote (every line prefixed `> `, split at every line break). Line breaks in `interface` names and `config_path` are flattened to a space, since both are interpolated inline. "Line break" means every Unicode mandatory break (see Design Decisions). Each blockquote line, interface name, and config path goes through `escapeMarkdownInline`, so a CommonMark parse of `content[]` reads it back exactly as `structuredContent` carries it; `structuredContent` keeps every value verbatim.
 
 ### `wol_list_reference`
 
@@ -437,7 +445,7 @@ Wiring: `initLanService(deps?: Partial<LanDeps>)` and `initHostRegistry(registry
 - `wol_check_host`: open, refused, silent, `no_address`; darwin guidance through the injected `platform`; a raw `address` or `check_port` beside the alias rejected.
 - Config: every startup `ConfigurationError`, with no `secureon` value in any message; a non-regular file and a file 1 byte over 1 MiB refused without a read, a file of exactly 1 MiB loaded; a hosts file with a UTF-8 byte-order mark loads.
 - Transport guard matrix.
-- `format()`: parity (lint) plus, for each line break, a description rendering as a blockquote line by line and never as a new heading, and interface names and the config path flattened onto their line.
+- `format()`: parity (lint) plus, for each line break, a description rendering as a blockquote line by line and never as a new heading, and interface names and the config path flattened onto their line. Rendered text is read back through a CommonMark parse (`markdown-it`), so a description's Markdown syntax must come back as written.
 
 **Live verification fixture (loopback only).** Agents never send to a LAN address, a broadcast address, or a real MAC, and never run commands that inspect host network state. Field tests start the server with both hosts variables pinned on the command line. Two layers load `.env`: `bun run` itself, and the framework, which calls `process.loadEnvFile()` on `./.env` at its first config parse. Both skip a variable already present in the environment, so pinning `WOL_HOSTS_FILE` to blank and `WOL_HOSTS` to the fixture is what keeps the operator's real profiles out. `--no-env-file` additionally stops Bun's own load:
 
