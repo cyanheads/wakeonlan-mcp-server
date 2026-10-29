@@ -1,6 +1,6 @@
 # wakeonlan-mcp-server - Directory Structure
 
-Generated on: 2026-10-09 08:48:18
+Generated on: 2026-10-29 04:22:43
 
 ```text
 wakeonlan-mcp-server/
@@ -25,6 +25,7 @@ wakeonlan-mcp-server/
 │   └── settings.json
 ├── changelog/
 │   ├── 0.1.x/
+│   ├── 0.2.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
@@ -36,6 +37,8 @@ wakeonlan-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -133,6 +136,9 @@ wakeonlan-mcp-server/
 │   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
+├── skills/
+│   └── wakeonlan-guide/
+│       └── SKILL.md
 ├── src/
 │   ├── config/
 │   │   ├── http-exposure.ts
@@ -177,6 +183,8 @@ wakeonlan-mcp-server/
 │   │           ├── list-hosts.tool.test.ts
 │   │           ├── list-reference.tool.test.ts
 │   │           └── wake-host.tool.test.ts
+│   ├── scripts/
+│   │   └── bundle-agent-docs.test.ts
 │   ├── services/
 │   │   ├── hosts/
 │   │   │   ├── host-registry.test.ts
@@ -207,7 +215,9 @@ wakeonlan-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json

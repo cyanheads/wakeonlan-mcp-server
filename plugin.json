@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "wakeonlan-mcp-server",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Wake LAN machines with Wake-on-LAN magic packets from host profiles, then confirm they came up via MCP. STDIO or Streamable HTTP.",
   "author": {
     "name": "Casey Hand",
