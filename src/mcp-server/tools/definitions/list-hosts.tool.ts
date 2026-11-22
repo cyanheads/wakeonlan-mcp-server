@@ -8,7 +8,7 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { getHostRegistry } from '@/services/hosts/host-registry.js';
 import { getLanService } from '@/services/lan/lan-service.js';
-import { blockquote, flattenLine } from '../text.js';
+import { aliasSpan, blockquote, flattenLine } from '../text.js';
 
 const SOURCE_LABELS = {
   file: 'WOL_HOSTS_FILE',
@@ -145,7 +145,7 @@ export const wolListHosts = tool('wol_list_hosts', {
       `**Config source:** ${result.config_source} (${SOURCE_LABELS[result.config_source]}${path})`,
     ];
     for (const host of result.hosts) {
-      lines.push('', `## ${host.alias}`);
+      lines.push('', `## ${aliasSpan(host.alias)}`);
       if (host.description !== undefined) lines.push(blockquote(host.description), '');
       lines.push(`- **MAC:** ${host.mac}`);
       lines.push(`- **Address:** ${host.address ?? 'none (a wake cannot be confirmed)'}`);

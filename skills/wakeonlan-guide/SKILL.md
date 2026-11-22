@@ -4,7 +4,7 @@ description: Gates for the wol_* tools. Covers when a wake is warranted versus a
 license: Apache-2.0
 metadata:
   author: cyanheads
-  version: "1.0"
+  version: "1.1"
 ---
 
 ## Scope
@@ -23,9 +23,9 @@ metadata:
 ## Gates
 
 1. **Wake only when the user wants the machine on.** A wake powers on a physical machine. "Is X on?" or "can I reach X?" is wol_check_host, which sends nothing. Call wol_wake_host when the user asks for the machine to be on, or for work that needs it running.
-2. **refused means the machine is on.** A `refused` outcome means something at the address answered on the network and nothing accepted the connection on `check_port`. That holds from wol_check_host and from `probe.last_outcome` under a wake whose `state` is `not_reachable`. Never report the machine as asleep, or the wake as failed, on a refusal. Either the service on `check_port` hasn't started yet (re-check shortly), or `check_port` is wrong for that host, which the operator fixes in the profile. A refusal doesn't end polling: a wake keeps probing every 2 seconds through its wait and then returns `not_reachable`, so with a wrong `check_port` every wake ends that way and waking again fixes nothing.
+2. **refused means the machine is on.** A `refused` outcome means something at the address answered on the network and nothing accepted the connection on `check_port`. That holds from wol_check_host and from `probe.last_outcome` under a wake whose `state` is `not_reachable`. Never report the machine as asleep, or the wake as failed, on a refusal. Either the service on `check_port` hasn't started yet (re-check shortly), or `check_port` is wrong for that host, which the operator fixes in the profile. A refusal doesn't end polling: a wake keeps probing every 2 seconds through its wait, probes once more when the wait ends, and only then returns `not_reachable`, so with a wrong `check_port` every wake ends that way and waking again fixes nothing.
 3. **Sent is not delivered.** `packets_sent: 3` means the local network stack sent the datagrams. UDP carries no acknowledgment, and the count is the same when nothing receives them. Only a probe that reads `open` confirms a host is up; `unverified` means no confirmation was attempted.
-4. **One not_reachable is not a failed wake.** With `last_outcome: no_answer` it means the window closed before the host answered, and a cold boot from soft-off can take longer than the 55-second cap. Re-check with wol_check_host a minute or two later, a few times, before concluding anything. Don't loop wol_wake_host as a poll: each wake sends 3 broadcasts and probes `check_port` every 2 seconds, and on an SSH port every probe is a logged pre-auth disconnect that an intrusion filter can count against the server's address.
+4. **One not_reachable is not a failed wake.** With `last_outcome: no_answer` it means the window closed before the host answered, and a cold boot from soft-off can take longer than the 55-second cap. Re-check with wol_check_host a minute or two later, a few times, before concluding anything. Don't loop wol_wake_host as a poll: each wake sends 3 broadcasts and probes `check_port` every 2 seconds, and on an SSH port every probe that connects is a logged pre-auth disconnect that an intrusion filter can count against the server's address.
 5. **no_answer doesn't prove the machine is off.** It reads the same when the host is still booting, when a hostname address fails to resolve (a typo, stale DNS, or the `.local` name of a sleeping host), when macOS 15 or later has denied Local Network access to the app that launched this server, and when a full-tunnel VPN has captured the LAN route.
 6. **open proves an answer, not identity.** `open`, `awake`, and `already_awake` mean something accepted a connection at `address:check_port`. If DHCP handed that address to another device, or a hostname address now resolves elsewhere, the reading can come from that device. Mention it when the result contradicts what the user expects.
 

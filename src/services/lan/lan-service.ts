@@ -139,10 +139,14 @@ export class LanService {
 
   /**
    * Send the magic packets, then confirm the wake. Probes `address:check_port`
-   * before sending (to tell `already_awake` from a real wake) and every
-   * `POLL_INTERVAL_MS` after the first packet until it answers or `waitForS`
-   * elapses. Probing is skipped entirely without an address or when `waitForS`
-   * is 0. A failed send is a `send_failed` result; cancellation rejects.
+   * before sending (to tell `already_awake` from a real wake), every
+   * `POLL_INTERVAL_MS` after the first packet while the `waitForS` window runs
+   * (each poll cut off at the window's end), and once more when the window
+   * ends, with the full `PROBE_TIMEOUT_MS`. `not_reachable` comes only after
+   * that closing probe, so the call takes at most the pre-probe, the window,
+   * and the closing probe: `waitForS` + 2 × `PROBE_TIMEOUT_MS`. Probing is
+   * skipped entirely without an address or when `waitForS` is 0. A failed send
+   * is a `send_failed` result; cancellation rejects.
    */
   private async sendAndConfirm(
     profile: HostProfile,
@@ -180,30 +184,37 @@ export class LanService {
     const t0 = sent.firstSentAt;
     const deadline = t0 + waitForS * 1000;
     let attempts = 1;
-    let last: ProbeOutcome = preProbe.outcome;
+    const awake = (answeredAt: number): WakeResult => ({
+      kind: 'sent',
+      state: 'awake',
+      probe: summary(attempts, 'open'),
+      timeToAnswerMs: Math.round(answeredAt - t0),
+    });
+
     for (
       let attemptAt = t0 + POLL_INTERVAL_MS;
       attemptAt < deadline;
       attemptAt += POLL_INTERVAL_MS
     ) {
-      const wait = attemptAt - this.now();
-      if (wait > 0) await this.deps.clock.sleep(wait, signal);
+      await this.sleepUntil(attemptAt, signal);
       const remaining = deadline - this.now();
       if (remaining <= 0) break;
-
       const result = await this.probe(address, port, Math.min(PROBE_TIMEOUT_MS, remaining), signal);
       attempts++;
-      last = result.outcome;
-      if (result.outcome === 'open') {
-        return {
-          kind: 'sent',
-          state: 'awake',
-          probe: summary(attempts, 'open'),
-          timeToAnswerMs: Math.round(result.answeredAt - t0),
-        };
-      }
+      if (result.outcome === 'open') return awake(result.answeredAt);
     }
-    return { kind: 'sent', state: 'not_reachable', probe: summary(attempts, last) };
+
+    await this.sleepUntil(deadline, signal);
+    const closing = await this.probe(address, port, PROBE_TIMEOUT_MS, signal);
+    attempts++;
+    if (closing.outcome === 'open') return awake(closing.answeredAt);
+    return { kind: 'sent', state: 'not_reachable', probe: summary(attempts, closing.outcome) };
+  }
+
+  /** Sleep until clock time `at`; returns at once when it has already passed. */
+  private async sleepUntil(at: number, signal: AbortSignal): Promise<void> {
+    const wait = at - this.now();
+    if (wait > 0) await this.deps.clock.sleep(wait, signal);
   }
 
   /**

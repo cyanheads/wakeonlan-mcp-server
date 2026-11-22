@@ -5,7 +5,17 @@
  */
 
 import { isIPv6 } from 'node:net';
-import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
+
+/**
+ * An alias as a Markdown code span. A CommonMark parse reads it back exactly,
+ * and the raw text carries no backslash, so a model can copy it into `alias`
+ * as shown; `escapeMarkdownInline` would write `nas.\_x\_`, which `alias`
+ * rejects.
+ */
+export function aliasSpan(alias: string): string {
+  return markdown().inlineCode(alias).build();
+}
 
 /** `address:port`, bracketing an IPv6 literal so the port stays unambiguous. */
 export function hostPort(address: string, port: number): string {

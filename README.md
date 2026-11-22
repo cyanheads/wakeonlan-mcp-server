@@ -46,8 +46,8 @@ Served over MCP as `skill://wakeonlan-guide/SKILL.md` and shipped in the npm pac
 
 ### `wol_wake_host` <sub>tool</sub>
 
-- `alias` (from `wol_list_hosts`, case-insensitive) plus optional `wait_for_s`, 0–55 seconds, default 30; `0` sends and returns without checking. Sends 3 packets 500 ms apart, probing the check port once before sending and every 2 s after the first packet
-- `state` is `already_awake`, `awake` (with `time_to_answer_ms`, an upper bound at the 2 s poll interval), `not_reachable`, or `unverified` (`unverified_reason`: `wait_disabled` or `no_address`); the last two carry a `guidance` next step
+- `alias` (from `wol_list_hosts`, case-insensitive) plus optional `wait_for_s`, 0–55 seconds, default 30; `0` sends and returns without checking. Sends 3 packets 500 ms apart, probing the check port once before sending, every 2 s after the first packet, and once more when the wait ends; the call returns within `wait_for_s` + 3 seconds
+- `state` is `already_awake`, `awake` (with `time_to_answer_ms`, an upper bound at the 2 s poll interval), `not_reachable` (no probe connected, the last one included), or `unverified` (`unverified_reason`: `wait_disabled` or `no_address`); the last two carry a `guidance` next step
 - Fails as `unknown_host`, `off_segment` (nothing sent: this machine has no interface on the host's subnet), retryable `wake_in_progress` (nothing sent: another call is already waking that host, and one wake per host runs at a time), or retryable `socket_error`, whose `data` carries the failed `stage` and `packets_sent`
 
 ---
@@ -141,7 +141,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 WOL_HOSTS_FILE=~/.config/wakeonlan/ho
 
 ### Prerequisites
 
-- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
+- [Bun v1.4.4](https://bun.sh/) or higher (or Node.js v24+).
 - A machine attached to the same LAN segment as the hosts it wakes. Run the server on that machine's OS, or in [Docker](#docker) with host networking on Linux: a container on a default bridge network, Docker Desktop on macOS or Windows, or WSL2 in its default NAT mode can't put a broadcast on the LAN.
 - Targets with Wake-on-LAN enabled in firmware and armed by the OS. `wol_list_reference` with topic `prerequisites` has the Windows, Linux, and macOS settings.
 

@@ -8,14 +8,22 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import { getHostRegistry } from '@/services/hosts/host-registry.js';
-import { getLanService, PACKET_COUNT, POLL_INTERVAL_MS } from '@/services/lan/lan-service.js';
+import {
+  getLanService,
+  PACKET_COUNT,
+  POLL_INTERVAL_MS,
+  PROBE_TIMEOUT_MS,
+} from '@/services/lan/lan-service.js';
 import type { WakeResult } from '@/services/lan/types.js';
 import { aliasInput, NO_PROFILES_HINT, unknownHostDetails } from '../host-alias.js';
-import { blockquote, flattenLine, hostPort, refusedGuidance } from '../text.js';
+import { aliasSpan, blockquote, flattenLine, hostPort, refusedGuidance } from '../text.js';
 
 const MAX_WAIT_S = 55;
 const DEFAULT_WAIT_S = 30;
 const POLL_INTERVAL_S = POLL_INTERVAL_MS / 1000;
+const PROBE_TIMEOUT_S = PROBE_TIMEOUT_MS / 1000;
+/** The probe before the packets plus the one when the window ends: a call's time beyond wait_for_s. */
+const OVERRUN_S = 2 * PROBE_TIMEOUT_S;
 
 const DARWIN_SOCKET_HINT =
   'On macOS 15 and later, the user must allow Local Network access for the app that launched this server (System Settings > Privacy & Security > Local Network); the first send after that prompt appears can fail before it is answered. Retry wol_wake_host once access is allowed, and call wol_list_reference with topic sender-environment if it still fails.';
@@ -40,7 +48,7 @@ function wakeGuidance(
 
 export const wolWakeHost = tool('wol_wake_host', {
   title: 'Wake Host',
-  description: `Send Wake-on-LAN magic packets to a configured host and, by default, wait until it answers on its TCP check port. Name the host by its alias from wol_list_hosts; the MAC, broadcast address, and ports come from the operator's profile, and a host this machine has no interface on (on_segment false in wol_list_hosts) is refused before anything is sent. It probes the check port once, sends ${PACKET_COUNT} packets, then re-probes every ${POLL_INTERVAL_S} seconds until the port answers or wait_for_s elapses. The result state is already_awake (the port answered before the packets went out; they are still sent), awake (it answered within the window, with time_to_answer_ms), not_reachable (the window elapsed; the host may still be booting, so re-check with wol_check_host), or unverified (no probe ran: wait_for_s was 0, or the profile has no address).`,
+  description: `Send Wake-on-LAN magic packets to a configured host and, by default, wait until it answers on its TCP check port. Name the host by its alias from wol_list_hosts; the MAC, broadcast address, and ports come from the operator's profile, and a host this machine has no interface on (on_segment false in wol_list_hosts) is refused before anything is sent. It probes the check port once, sends ${PACKET_COUNT} packets, then re-probes every ${POLL_INTERVAL_S} seconds until the port answers or wait_for_s elapses, with one last probe when it elapses; each probe waits at most ${PROBE_TIMEOUT_S} seconds, so the call returns within wait_for_s + ${OVERRUN_S} seconds. The result state is already_awake (the port answered before the packets went out; they are still sent), awake (a probe after the packets connected, with time_to_answer_ms), not_reachable (no probe connected, the last one included; the host may still be booting, so re-check with wol_check_host), or unverified (no probe ran: wait_for_s was 0, or the profile has no address).`,
   annotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -56,7 +64,7 @@ export const wolWakeHost = tool('wol_wake_host', {
         z.number().int().min(0).max(MAX_WAIT_S).default(DEFAULT_WAIT_S),
       )
       .describe(
-        `Seconds to wait for the host's check port to answer after the first packet (0–${MAX_WAIT_S}, default ${DEFAULT_WAIT_S}). 0 sends and returns without checking. ${MAX_WAIT_S} is the cap so the whole call fits inside the 60-second request timeout many MCP clients apply; re-check a slow cold boot with wol_check_host.`,
+        `Seconds to wait for the host's check port to answer after the first packet (0–${MAX_WAIT_S}, default ${DEFAULT_WAIT_S}). A last probe runs when the window ends, so the call returns within wait_for_s + ${OVERRUN_S} seconds. 0 sends and returns without checking. ${MAX_WAIT_S} is the cap so the whole call, at most ${MAX_WAIT_S + OVERRUN_S} seconds, fits inside the 60-second request timeout many MCP clients apply; re-check a slow cold boot with wol_check_host.`,
       ),
   }),
   output: z.object({
@@ -65,7 +73,7 @@ export const wolWakeHost = tool('wol_wake_host', {
     state: z
       .enum(['already_awake', 'awake', 'not_reachable', 'unverified'])
       .describe(
-        'already_awake: the check port answered before the packets went out (they were still sent). awake: it answered within the window. not_reachable: the window elapsed without an answer; the host may still be booting. unverified: no probe ran (see unverified_reason).',
+        'already_awake: the check port answered before the packets went out (they were still sent). awake: a probe after the packets connected, inside the window or at its end. not_reachable: no probe connected, the one at the end of the window included; the host may still be booting. unverified: no probe ran (see unverified_reason).',
       ),
     unverified_reason: z
       .enum(['wait_disabled', 'no_address'])
@@ -104,7 +112,7 @@ export const wolWakeHost = tool('wol_wake_host', {
       .int()
       .optional()
       .describe(
-        `Time from the first packet to the confirmation poll that connected, in ms. Polls run every ${POLL_INTERVAL_S} seconds, so this is an upper bound on when the check port started answering, not the exact moment. Present only when state is awake.`,
+        `Time from the first packet to the confirmation poll that connected, in ms. Polls run every ${POLL_INTERVAL_S} seconds and once more when the window ends, so this is an upper bound on when the check port started answering, not the exact moment; when that last poll connected, it runs past wait_for_s by up to ${PROBE_TIMEOUT_S} seconds. Present only when state is awake.`,
       ),
     elapsed_ms: z.number().int().describe('Wall-clock time for the whole call, in ms.'),
     guidance: z
@@ -155,11 +163,16 @@ export const wolWakeHost = tool('wol_wake_host', {
 
     const profile = registry.find(input.alias);
     if (!profile) {
-      const { message, data } = unknownHostDetails(input.alias, registry);
-      throw ctx.fail('unknown_host', message, {
-        ...data,
-        ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
-      });
+      const { message, data, literals } = unknownHostDetails(input.alias, registry);
+      throw ctx.fail(
+        'unknown_host',
+        message,
+        {
+          ...data,
+          ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
+        },
+        { literals },
+      );
     }
     const { alias } = profile;
 
@@ -172,11 +185,16 @@ export const wolWakeHost = tool('wol_wake_host', {
         segment.broadcast !== undefined
           ? `Broadcast ${segment.broadcast} for "${alias}" is not the directed broadcast of any local interface.`
           : `No broadcast for "${alias}" could be derived from its address ${profile.address}: it is not inside any local IPv4 subnet.`;
-      throw ctx.fail('off_segment', `${problem} Local IPv4 subnets compared: ${subnets}.`, {
-        alias,
-        ...(segment.broadcast !== undefined && { broadcast: segment.broadcast }),
-        local_subnets: segment.localSubnets,
-      });
+      throw ctx.fail(
+        'off_segment',
+        `${problem} Local IPv4 subnets compared: ${subnets}.`,
+        {
+          alias,
+          ...(segment.broadcast !== undefined && { broadcast: segment.broadcast }),
+          local_subnets: segment.localSubnets,
+        },
+        { literals: [alias] },
+      );
     }
 
     const result = await lan.wake(profile, segment, input.wait_for_s, ctx.signal);
@@ -185,6 +203,7 @@ export const wolWakeHost = tool('wol_wake_host', {
         'wake_in_progress',
         `A wake of "${alias}" is already running; only one wake of a host runs at a time, and nothing was sent.`,
         { alias },
+        { literals: [alias] },
       );
     }
     if (result.kind === 'send_failed') {
@@ -228,7 +247,7 @@ export const wolWakeHost = tool('wol_wake_host', {
   },
 
   format: (result) => {
-    const lines = [`## ${result.alias}: ${result.state}`];
+    const lines = [`## ${aliasSpan(result.alias)}: ${result.state}`];
     if (result.unverified_reason !== undefined) {
       lines.push(`- **Unverified reason:** ${result.unverified_reason}`);
     }

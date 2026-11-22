@@ -118,7 +118,13 @@ export type TcpBehavior =
   | 'unreachable'
   | 'silent'
   | { afterMs: number; kind: 'open' | 'refused' }
-  | { afterMs?: number; error: unknown; kind: 'error' };
+  | { afterMs?: number; error: unknown; kind: 'error' }
+  /**
+   * A port that starts listening at virtual time `at`: a connect begun before
+   * then behaves as `before`, one begun at or after it as `open`. A `silent`
+   * connect stays unanswered even if `at` passes while it is pending.
+   */
+  | { at: number; before: 'refused' | 'silent'; kind: 'opensAt' };
 
 /** Virtual latency of each scripted answer. */
 export const LATENCY = { open: 4, refused: 2, unreachable: 3 } as const;
@@ -128,7 +134,12 @@ type ResolvedBehavior =
   | { afterMs: number; error: unknown; kind: 'error' }
   | { kind: 'silent' };
 
-function resolveBehavior(behavior: TcpBehavior, host: string, port: number): ResolvedBehavior {
+function resolveBehavior(
+  behavior: TcpBehavior,
+  host: string,
+  port: number,
+  now: number,
+): ResolvedBehavior {
   const refused = () => coded('ECONNREFUSED', `connect ECONNREFUSED ${host}:${port}`);
   switch (behavior) {
     case 'open':
@@ -144,6 +155,9 @@ function resolveBehavior(behavior: TcpBehavior, host: string, port: number): Res
     case 'silent':
       return { kind: 'silent' };
     default:
+      if (behavior.kind === 'opensAt') {
+        return resolveBehavior(now >= behavior.at ? 'open' : behavior.before, host, port, now);
+      }
       if (behavior.kind === 'error') {
         return { kind: 'error', afterMs: behavior.afterMs ?? 0, error: behavior.error };
       }
@@ -237,7 +251,7 @@ export class FakeTcp {
 
     const queue = this.script[options.host] ?? [];
     const scripted = queue[Math.min(attempt, queue.length - 1)] ?? this.fallback;
-    const behavior = resolveBehavior(scripted, options.host, options.port);
+    const behavior = resolveBehavior(scripted, options.host, options.port, this.clock.now());
     if (behavior.kind !== 'silent') {
       this.clock.schedule(behavior.afterMs, () => {
         if (socket.destroyed) return;

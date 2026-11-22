@@ -197,7 +197,7 @@ describe('wol_list_hosts — hosts', () => {
     installLanFakes();
     const { text } = await list();
     for (const value of [
-      '## gpu-box',
+      '## `gpu-box`',
       '> Desktop with the training GPU; SSH on 22.',
       '00:00:5e:00:53:01',
       '192.0.2.50',
@@ -205,10 +205,10 @@ describe('wol_list_hosts — hosts', () => {
       'derived',
       'en0',
       '192.0.2.10',
-      '## cabin-pc',
+      '## `cabin-pc`',
       '198.51.100.20',
       'unresolved',
-      '## printer',
+      '## `printer`',
       'configured',
       'inline',
       'WOL_HOSTS',
@@ -216,8 +216,8 @@ describe('wol_list_hosts — hosts', () => {
       expect(text).toContain(value);
     }
     // The heading order follows the config order.
-    expect(text.indexOf('## gpu-box')).toBeLessThan(text.indexOf('## cabin-pc'));
-    expect(text.indexOf('## cabin-pc')).toBeLessThan(text.indexOf('## printer'));
+    expect(text.indexOf('## `gpu-box`')).toBeLessThan(text.indexOf('## `cabin-pc`'));
+    expect(text.indexOf('## `cabin-pc`')).toBeLessThan(text.indexOf('## `printer`'));
   });
 
   it('re-resolves against the current interface table on each call', async () => {
@@ -342,6 +342,37 @@ describe('wol_list_hosts — format() safety', () => {
     },
   );
 
+  it('keeps an OS-supplied interface name and the hosts-file path backslash-escaped, reading back as written', async () => {
+    const path = '/etc/wol/_hosts_.json';
+    const loaded = await loadHostsConfig({ hostsFile: path }, fileDeps(PROFILES.gpuBox));
+    initHostRegistry(new HostRegistry(loaded));
+    installLanFakes({
+      interfaces: { _vpn_: [v4('192.0.2.10', '255.255.255.0', '192.0.2.10/24')] },
+    });
+    const { structured, text } = await list();
+    expect(structured).toMatchObject({ config_path: path, hosts: [{ interface: '_vpn_' }] });
+    expect(text).toContain('(WOL_HOSTS_FILE at /etc/wol/\\_hosts\\_.json)');
+    expect(text).toContain('via \\_vpn\\_ (192.0.2.10)');
+    const { textLines } = parseMarkdown(text);
+    expect(textLines).toContain('Config source: file (WOL_HOSTS_FILE at /etc/wol/_hosts_.json)');
+    expect(textLines).toContain('on_segment: yes via _vpn_ (192.0.2.10)');
+  });
+
+  it('renders each alias heading as a code span that reads back exactly, with no backslash', async () => {
+    await installHosts([
+      { ...PROFILES.gpuBox, alias: 'nas._x_' },
+      { ...PROFILES.printer, alias: 'a.-_b_.c' },
+    ]);
+    installLanFakes();
+    const { structured, text } = await list();
+    expect((structured as ListOutput).hosts.map((h) => h.alias)).toEqual(['nas._x_', 'a.-_b_.c']);
+    expect(renderedLines(text).filter((line) => line.startsWith('## '))).toEqual([
+      '## `nas._x_`',
+      '## `a.-_b_.c`',
+    ]);
+    expect(parseMarkdown(text).headings).toEqual(['nas._x_', 'a.-_b_.c']);
+  });
+
   it('renders a host with no address, broadcast, or interface without inventing values', () => {
     const output: ListOutput = {
       hosts: [
@@ -358,7 +389,7 @@ describe('wol_list_hosts — format() safety', () => {
       config_source: 'inline',
     };
     const text = blocksText(wolListHosts.format?.(output) ?? []);
-    expect(text).toContain('## cabin-pc');
+    expect(text).toContain('## `cabin-pc`');
     expect(text).toContain('unresolved');
     expect(text).not.toContain('192.0.2');
     expect(text).not.toContain('undefined');

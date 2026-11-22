@@ -49,7 +49,7 @@ toolContractSuite(wolWakeHost, {
       input: { alias: 'v6-box', wait_for_s: 3 },
       expected: {
         state: 'not_reachable',
-        probe: { address: '2001:db8::50', port: 22, attempts: 2, last_outcome: 'refused' },
+        probe: { address: '2001:db8::50', port: 22, attempts: 3, last_outcome: 'refused' },
       },
     },
     {
@@ -67,7 +67,7 @@ toolContractSuite(wolWakeHost, {
       input: { alias: 'gpu-box', wait_for_s: '' },
       expected: { state: 'already_awake' },
       assert: (result) => {
-        expect(contentText(result)).toContain('## gpu-box: already_awake');
+        expect(contentText(result)).toContain('## `gpu-box`: already_awake');
       },
     },
   ],

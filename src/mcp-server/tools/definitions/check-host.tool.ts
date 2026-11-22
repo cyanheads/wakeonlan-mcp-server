@@ -9,7 +9,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getHostRegistry } from '@/services/hosts/host-registry.js';
 import { getLanService, PROBE_TIMEOUT_MS } from '@/services/lan/lan-service.js';
 import { aliasInput, NO_PROFILES_HINT, unknownHostDetails } from '../host-alias.js';
-import { blockquote, hostPort, refusedGuidance } from '../text.js';
+import { aliasSpan, blockquote, hostPort, refusedGuidance } from '../text.js';
 
 const PROBE_TIMEOUT_S = PROBE_TIMEOUT_MS / 1000;
 
@@ -59,17 +59,25 @@ export const wolCheckHost = tool('wol_check_host', {
     const registry = getHostRegistry();
     const profile = registry.find(input.alias);
     if (!profile) {
-      const { message, data } = unknownHostDetails(input.alias, registry);
-      throw ctx.fail('unknown_host', message, {
-        ...data,
-        ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
-      });
+      const { message, data, literals } = unknownHostDetails(input.alias, registry);
+      throw ctx.fail(
+        'unknown_host',
+        message,
+        {
+          ...data,
+          ...(data.configured_count === 0 && { recovery: { hint: NO_PROFILES_HINT } }),
+        },
+        { literals },
+      );
     }
     const { alias, address, check_port } = profile;
     if (address === undefined) {
-      throw ctx.fail('no_address', `The profile for "${alias}" has no address to probe.`, {
-        alias,
-      });
+      throw ctx.fail(
+        'no_address',
+        `The profile for "${alias}" has no address to probe.`,
+        { alias },
+        { literals: [alias] },
+      );
     }
 
     const lan = getLanService();
@@ -99,7 +107,7 @@ export const wolCheckHost = tool('wol_check_host', {
 
   format: (result) => {
     const lines = [
-      `## ${result.alias}: ${result.outcome}`,
+      `## ${aliasSpan(result.alias)}: ${result.outcome}`,
       `- **Probed:** ${hostPort(result.address, result.check_port)} (TCP)`,
       `- **reachable:** ${result.reachable ? 'yes' : 'no'}`,
     ];

@@ -22,7 +22,11 @@ export const aliasInput = z
   )
   .describe('Host alias from wol_list_hosts (case-insensitive).');
 
-/** Message and data for an alias that matches no profile; lists up to 20 configured aliases. */
+/**
+ * Message and data for an alias that matches no profile; lists up to 20
+ * configured aliases. `literals` holds every alias the message quotes, for
+ * `ctx.fail`, so `content[]` shows each as a code span a model can copy.
+ */
 export function unknownHostDetails(alias: string, registry: HostRegistry) {
   const configured = registry.profiles.map((p) => p.alias);
   const listed = configured.slice(0, LISTED_ALIASES);
@@ -34,5 +38,6 @@ export function unknownHostDetails(alias: string, registry: HostRegistry) {
   return {
     message,
     data: { alias, configured_aliases: listed, configured_count: configured.length },
+    literals: [alias, ...listed],
   };
 }

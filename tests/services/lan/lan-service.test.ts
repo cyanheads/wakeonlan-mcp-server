@@ -2,7 +2,8 @@
  * @fileoverview LanService against faked sockets, interfaces, and a virtual
  * clock: probe classification and cleanup, the bind → setBroadcast → send ×3 →
  * close sequence, every send-failure stage, the wake state machine with its
- * poll schedule and deadline clamp, and cancellation at each wait.
+ * poll schedule, deadline clamp, and closing probe, and cancellation at each
+ * wait.
  * @module tests/services/lan/lan-service.test
  */
 
@@ -24,7 +25,13 @@ import {
   PROFILES,
   SECUREON,
 } from '../../helpers/fixtures.js';
-import { coded, createLanFakes, LATENCY, type LanFakeOptions } from '../../helpers/lan-fakes.js';
+import {
+  coded,
+  createLanFakes,
+  LATENCY,
+  type LanFakeOptions,
+  type TcpBehavior,
+} from '../../helpers/lan-fakes.js';
 
 const START = 50_000;
 
@@ -416,7 +423,7 @@ describe('LanService.wake — states and the poll schedule', () => {
     });
   });
 
-  it('returns not_reachable with no_answer, clamping the last probe to the deadline', async () => {
+  it('returns not_reachable with no_answer after the closing probe, clamping the last in-window poll to the deadline', async () => {
     const fakes = setup({ tcp: { '192.0.2.50': ['silent'] } });
     const gpuBox = await profileOf(PROFILES.gpuBox);
     const result = await fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), 5, live());
@@ -426,7 +433,7 @@ describe('LanService.wake — states and the poll schedule', () => {
     expect(result).toEqual({
       kind: 'sent',
       state: 'not_reachable',
-      probe: { address: '192.0.2.50', port: 22, attempts: 3, last_outcome: 'no_answer' },
+      probe: { address: '192.0.2.50', port: 22, attempts: 4, last_outcome: 'no_answer' },
     });
     expect(fakes.clock.sleeps).toEqual([
       { at: START, ms: PROBE_TIMEOUT_MS }, // pre-probe timeout
@@ -436,8 +443,9 @@ describe('LanService.wake — states and the poll schedule', () => {
       { at: t0 + 2000, ms: PROBE_TIMEOUT_MS },
       { at: t0 + 3500, ms: 500 }, // wait for the t0 + 4 s poll
       { at: t0 + 4000, ms: 1000 }, // clamped: only 1 s remains before the deadline
+      { at: deadline, ms: PROBE_TIMEOUT_MS }, // the closing probe, with the full timeout
     ]);
-    expect(fakes.clock.now()).toBe(deadline);
+    expect(fakes.clock.now()).toBe(deadline + PROBE_TIMEOUT_MS);
   });
 
   it('returns not_reachable with refused when every probe is refused', async () => {
@@ -447,27 +455,27 @@ describe('LanService.wake — states and the poll schedule', () => {
     const t0 = START + LATENCY.refused;
     expect(result).toMatchObject({
       state: 'not_reachable',
-      probe: { attempts: 3, last_outcome: 'refused' },
+      probe: { attempts: 4, last_outcome: 'refused' },
     });
-    expect(fakes.tcp.connects.map((c) => c.at)).toEqual([START, t0 + 2000, t0 + 4000]);
+    expect(fakes.tcp.connects.map((c) => c.at)).toEqual([START, t0 + 2000, t0 + 4000, t0 + 5000]);
   });
 
   it('reports the last outcome, not the first, when outcomes change across polls', async () => {
     const fakes = setup({ tcp: { '192.0.2.50': ['refused', 'refused', 'silent'] } });
     const gpuBox = await profileOf(PROFILES.gpuBox);
     const result = await fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), 5, live());
-    expect(result).toMatchObject({ probe: { attempts: 3, last_outcome: 'no_answer' } });
+    expect(result).toMatchObject({ probe: { attempts: 4, last_outcome: 'no_answer' } });
   });
 
   // wait_for_s → total probes, and when the call returns relative to the first packet (t0).
-  // A poll is only attempted before the deadline, so a window shorter than the 2 s poll
-  // interval ends after the last packet with the pre-probe as the only attempt.
+  // A poll runs only inside the window, so a window shorter than the 2 s poll interval
+  // has none; every window then ends with the closing probe, which times out 1.5 s later.
   it.each([
-    [1, 1, 1000],
-    [2, 1, 1000],
-    [3, 2, 3000],
-    [4, 2, 3500],
-    [5, 3, 5000],
+    [1, 2, 2500],
+    [2, 2, 3500],
+    [3, 3, 4500],
+    [4, 3, 5500],
+    [5, 4, 6500],
   ])(
     'with wait_for_s %d, probes %d time(s) and returns at t0 + %d ms',
     async (waitForS, attempts, endsAt) => {
@@ -477,18 +485,22 @@ describe('LanService.wake — states and the poll schedule', () => {
       expect(result).toMatchObject({ state: 'not_reachable', probe: { attempts } });
       const t0 = START + PROBE_TIMEOUT_MS;
       expect(fakes.clock.now()).toBe(t0 + endsAt);
-      expect(fakes.clock.now()).toBeLessThanOrEqual(t0 + Math.max(waitForS * 1000, 1000));
+      expect(fakes.clock.now()).toBeLessThanOrEqual(t0 + waitForS * 1000 + PROBE_TIMEOUT_MS);
     },
   );
 
-  it('never runs past 1.5 s pre-probe + wait_for_s at the 55 s cap', async () => {
+  it('never runs past the 1.5 s pre-probe + wait_for_s + the 1.5 s closing probe at the 55 s cap', async () => {
     const fakes = setup({ tcp: { '192.0.2.50': ['silent'] } });
     const gpuBox = await profileOf(PROFILES.gpuBox);
     const result = await fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), 55, live());
-    expect(result).toMatchObject({ state: 'not_reachable', probe: { attempts: 28 } });
-    expect(fakes.clock.now() - START).toBe(PROBE_TIMEOUT_MS + 55_000);
-    // The 28th probe starts at t0 + 54 s with only 1 s left before the deadline.
-    expect(fakes.clock.sleeps.at(-1)).toEqual({ at: START + PROBE_TIMEOUT_MS + 54_000, ms: 1000 });
+    expect(result).toMatchObject({ state: 'not_reachable', probe: { attempts: 29 } });
+    expect(fakes.clock.now() - START).toBe(PROBE_TIMEOUT_MS + 55_000 + PROBE_TIMEOUT_MS);
+    // The 28th probe starts at t0 + 54 s with only 1 s left before the deadline; the 29th
+    // is the closing probe at the deadline.
+    expect(fakes.clock.sleeps.slice(-2)).toEqual([
+      { at: START + PROBE_TIMEOUT_MS + 54_000, ms: 1000 },
+      { at: START + PROBE_TIMEOUT_MS + 55_000, ms: PROBE_TIMEOUT_MS },
+    ]);
   });
 
   it('returns unverified (no_address) with no probe for a profile without an address', async () => {
@@ -513,6 +525,140 @@ describe('LanService.wake — states and the poll schedule', () => {
     });
     expect(fakes.tcp.connects).toHaveLength(0);
   });
+});
+
+describe('LanService.wake — the closing probe when the window ends', () => {
+  /** When the first packet goes out: after a refused pre-probe (2 ms) or a silent one (the 1.5 s timeout). */
+  const firstPacketAt = (before: 'refused' | 'silent') =>
+    START + (before === 'refused' ? LATENCY.refused : PROBE_TIMEOUT_MS);
+
+  /** Wake gpu-box against a check port that answers `before` until `opensAfterMs` past the first packet. */
+  async function wakeAgainst(
+    waitForS: number,
+    before: 'refused' | 'silent',
+    opensAfterMs: number | 'never' = 'never',
+  ) {
+    const t0 = firstPacketAt(before);
+    const behavior: TcpBehavior =
+      opensAfterMs === 'never' ? before : { kind: 'opensAt', at: t0 + opensAfterMs, before };
+    const fakes = setup({ tcp: { '192.0.2.50': [behavior] } });
+    const gpuBox = await profileOf(PROFILES.gpuBox);
+    const result = await fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), waitForS, live());
+    return { ...fakes, result, t0 };
+  }
+
+  it.each([1, 2, 55])(
+    'returns already_awake with wait_for_s %d after the one pre-probe, never polling',
+    async (waitForS) => {
+      const fakes = setup({ tcp: { '192.0.2.50': ['open'] } });
+      const gpuBox = await profileOf(PROFILES.gpuBox);
+      const result = await fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), waitForS, live());
+      expect(result).toEqual({
+        kind: 'sent',
+        state: 'already_awake',
+        probe: { address: '192.0.2.50', port: 22, attempts: 1, last_outcome: 'open' },
+      });
+      expect(fakes.tcp.connects).toHaveLength(1);
+      expect(fakes.clock.now()).toBe(START + LATENCY.open + 2 * PACKET_SPACING_MS);
+    },
+  );
+
+  it.each(['refused', 'silent'] as const)(
+    'returns awake on the first in-window poll for a port that opens 20 ms after the first packet (%s before)',
+    async (before) => {
+      const { result, tcp, clock, t0 } = await wakeAgainst(55, before, 20);
+      expect(result).toEqual({
+        kind: 'sent',
+        state: 'awake',
+        probe: { address: '192.0.2.50', port: 22, attempts: 2, last_outcome: 'open' },
+        timeToAnswerMs: 2004,
+      });
+      expect(tcp.connects.map((c) => c.at)).toEqual([START, t0 + 2000]);
+      expect(clock.now()).toBe(t0 + 2004);
+    },
+  );
+
+  // wait_for_s, the pre-probe's outcome, when the port opens (ms after the first packet,
+  // or never), then the result: state, probes made, last outcome, return time and
+  // time_to_answer_ms (both ms after the first packet). Windows 1 and 2 have no in-window
+  // poll; 3 has one; 5 and 55 have several, the last cut off at the deadline.
+  it.each([
+    [1, 'refused', 20, 'awake', 2, 'open', 1004, 1004],
+    [1, 'silent', 20, 'awake', 2, 'open', 1004, 1004],
+    [1, 'refused', 1000, 'awake', 2, 'open', 1004, 1004],
+    [1, 'silent', 1000, 'awake', 2, 'open', 1004, 1004],
+    [1, 'refused', 'never', 'not_reachable', 2, 'refused', 1002, undefined],
+    [1, 'silent', 'never', 'not_reachable', 2, 'no_answer', 2500, undefined],
+    [2, 'refused', 20, 'awake', 2, 'open', 2004, 2004],
+    [2, 'silent', 20, 'awake', 2, 'open', 2004, 2004],
+    [2, 'refused', 2000, 'awake', 2, 'open', 2004, 2004],
+    [2, 'silent', 2000, 'awake', 2, 'open', 2004, 2004],
+    [2, 'refused', 'never', 'not_reachable', 2, 'refused', 2002, undefined],
+    [2, 'silent', 'never', 'not_reachable', 2, 'no_answer', 3500, undefined],
+    [3, 'refused', 2500, 'awake', 3, 'open', 3004, 3004],
+    [3, 'silent', 2500, 'awake', 3, 'open', 3004, 3004],
+    [3, 'refused', 3000, 'awake', 3, 'open', 3004, 3004],
+    [3, 'silent', 3000, 'awake', 3, 'open', 3004, 3004],
+    [3, 'refused', 'never', 'not_reachable', 3, 'refused', 3002, undefined],
+    [3, 'silent', 'never', 'not_reachable', 3, 'no_answer', 4500, undefined],
+    [5, 'refused', 4500, 'awake', 4, 'open', 5004, 5004],
+    [5, 'silent', 4500, 'awake', 4, 'open', 5004, 5004],
+    [5, 'refused', 5000, 'awake', 4, 'open', 5004, 5004],
+    [5, 'silent', 5000, 'awake', 4, 'open', 5004, 5004],
+    [5, 'refused', 'never', 'not_reachable', 4, 'refused', 5002, undefined],
+    [5, 'silent', 'never', 'not_reachable', 4, 'no_answer', 6500, undefined],
+    [55, 'refused', 54_500, 'awake', 29, 'open', 55_004, 55_004],
+    [55, 'silent', 54_500, 'awake', 29, 'open', 55_004, 55_004],
+    [55, 'refused', 55_000, 'awake', 29, 'open', 55_004, 55_004],
+    [55, 'silent', 55_000, 'awake', 29, 'open', 55_004, 55_004],
+    [55, 'refused', 'never', 'not_reachable', 29, 'refused', 55_002, undefined],
+    [55, 'silent', 'never', 'not_reachable', 29, 'no_answer', 56_500, undefined],
+  ] as const)(
+    'wait_for_s %d, %s before, opens: %s → %s after %d probes (last %s), returning at t0 + %d ms',
+    async (waitForS, before, opensAfterMs, state, attempts, lastOutcome, returnsAt, timeToAnswer) => {
+      const { result, tcp, clock, t0 } = await wakeAgainst(waitForS, before, opensAfterMs);
+      expect(result).toEqual({
+        kind: 'sent',
+        state,
+        probe: { address: '192.0.2.50', port: 22, attempts, last_outcome: lastOutcome },
+        ...(timeToAnswer !== undefined && { timeToAnswerMs: timeToAnswer }),
+      });
+      expect(clock.now()).toBe(t0 + returnsAt);
+      // The last probe is the closing one: it starts when the window ends.
+      expect(tcp.connects.at(-1)?.at).toBe(t0 + waitForS * 1000);
+    },
+  );
+
+  it.each(
+    Array.from({ length: 55 }, (_, i) => i + 1).flatMap((waitForS) => [
+      [waitForS, 'refused'] as const,
+      [waitForS, 'silent'] as const,
+    ]),
+  )(
+    'wait_for_s %d against a %s port: polls every 2 s inside the window, probes once at its end, returns no earlier than the end and within wait_for_s + 3 s',
+    async (waitForS, before) => {
+      const { result, tcp, clock, t0 } = await wakeAgainst(waitForS, before);
+      const deadline = t0 + waitForS * 1000;
+      const inWindow = Array.from(
+        { length: Math.ceil(waitForS / 2) - 1 },
+        (_, i) => t0 + POLL_INTERVAL_MS * (i + 1),
+      );
+      expect(tcp.connects.map((c) => c.at)).toEqual([START, ...inWindow, deadline]);
+      expect(result).toMatchObject({
+        state: 'not_reachable',
+        probe: {
+          attempts: inWindow.length + 2,
+          last_outcome: before === 'refused' ? 'refused' : 'no_answer',
+        },
+      });
+      expect(clock.now()).toBeGreaterThanOrEqual(deadline);
+      expect(clock.now() - START).toBeLessThanOrEqual(waitForS * 1000 + 2 * PROBE_TIMEOUT_MS);
+      // The closing probe gets the whole probe timeout, never a clamped one.
+      if (before === 'silent') {
+        expect(clock.sleeps.at(-1)).toEqual({ at: deadline, ms: PROBE_TIMEOUT_MS });
+      }
+    },
+  );
 });
 
 describe('LanService.wake — cancellation', () => {
@@ -558,6 +704,39 @@ describe('LanService.wake — cancellation', () => {
     expect(outcome).toMatchObject({ error: { name: 'AbortError' } });
     expect(udp.only.sends).toHaveLength(1);
     expect(udp.only.ops.slice(-2)).toEqual(['removeListener', 'close']);
+  });
+
+  it('rejects when aborted while waiting for the closing probe, starting no further probe', async () => {
+    const fakes = setup({ tcp: { '192.0.2.50': ['refused'] } });
+    const gpuBox = await profileOf(PROFILES.gpuBox);
+    const controller = new AbortController();
+    const t0 = LATENCY.refused;
+    // The t0 + 4 s poll is refused at once; the closing probe is due at t0 + 5 s.
+    fakes.clock.schedule(t0 + 4500, () => controller.abort());
+    await expect(
+      fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), 5, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fakes.tcp.connects.map((c) => c.at - START)).toEqual([0, t0 + 2000, t0 + 4000]);
+    expect(fakes.tcp.connects.every((c) => c.socket.destroyCount === 1)).toBe(true);
+    expect(fakes.udp.only.closed).toBe(true);
+    expect(fakes.clock.now()).toBe(START + t0 + 4500);
+    expect(fakes.clock.pending).toBe(0);
+  });
+
+  it('rejects when aborted during the closing probe, destroying its socket', async () => {
+    const fakes = setup({ tcp: { '192.0.2.50': ['silent'] } });
+    const gpuBox = await profileOf(PROFILES.gpuBox);
+    const controller = new AbortController();
+    const t0 = PROBE_TIMEOUT_MS;
+    fakes.clock.schedule(t0 + 5700, () => controller.abort());
+    await expect(
+      fakes.lan.wake(gpuBox, fakes.segmentOf(gpuBox), 5, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fakes.tcp.connects).toHaveLength(4);
+    expect(fakes.tcp.connects.at(-1)?.at).toBe(START + t0 + 5000);
+    expect(fakes.tcp.connects.every((c) => c.socket.destroyCount === 1)).toBe(true);
+    expect(fakes.clock.now()).toBe(START + t0 + 5700);
+    expect(fakes.clock.pending).toBe(0);
   });
 
   it('rejects during the pre-probe without opening a UDP socket', async () => {

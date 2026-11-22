@@ -96,12 +96,19 @@ const commonmark = new MarkdownIt('commonmark');
 
 /**
  * Read rendered `content[]` text back through a CommonMark parse, as a client
- * does: the text of every heading, and the lines inside every blockquote, with
- * Markdown escapes resolved.
+ * does: the text of every heading, the lines inside every blockquote, and the
+ * lines of every other paragraph and list item, with Markdown escapes resolved
+ * and emphasis, strong, and code-span markers dropped (a code span reads back
+ * as its content).
  */
-export function parseMarkdown(text: string): { headings: string[]; quotedLines: string[] } {
+export function parseMarkdown(text: string): {
+  headings: string[];
+  quotedLines: string[];
+  textLines: string[];
+} {
   const headings: string[] = [];
   const quotedLines: string[] = [];
+  const textLines: string[] = [];
   let quoteDepth = 0;
   let inHeading = false;
   for (const token of commonmark.parse(text, {})) {
@@ -117,9 +124,10 @@ export function parseMarkdown(text: string): { headings: string[]; quotedLines: 
         .join('');
       if (inHeading) headings.push(plain);
       else if (quoteDepth > 0) quotedLines.push(...plain.split('\n'));
+      else textLines.push(...plain.split('\n'));
     }
   }
-  return { headings, quotedLines };
+  return { headings, quotedLines, textLines };
 }
 
 /** The SecureOn password the fixtures carry, as the operator typed it and as stored. */

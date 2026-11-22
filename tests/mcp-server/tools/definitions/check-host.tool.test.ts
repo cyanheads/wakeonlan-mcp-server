@@ -20,6 +20,8 @@ import {
   installHosts,
   installNoHosts,
   PROFILES,
+  parseMarkdown,
+  renderedLines,
   structuredOf,
 } from '../../../helpers/fixtures.js';
 import {
@@ -76,7 +78,7 @@ describe('wol_check_host — outcomes on both surfaces', () => {
     expect(fakes.tcp.connects.map((c) => `${c.host}:${c.port}`)).toEqual(['192.0.2.50:22']);
     expect(fakes.tcp.connects[0]?.socket.destroyCount).toBe(1);
     expect(fakes.udp.sockets).toHaveLength(0);
-    expect(text).toContain('## gpu-box: open');
+    expect(text).toContain('## `gpu-box`: open');
     expect(text).toContain('192.0.2.50:22');
     expect(text).toContain(`${LATENCY.open} ms`);
   });
@@ -276,6 +278,53 @@ describe('wol_check_host — errors', () => {
     }
   });
 
+  it('unknown_host: quotes the requested and every listed alias as a code span in content[], structuredContent unchanged', async () => {
+    await installHosts([
+      { ...PROFILES.gpuBox, alias: 'nas._x_' },
+      { ...PROFILES.gpuBox, alias: 'gpu-box.lan' },
+      { ...PROFILES.printer, alias: 'a.-_b_.c' },
+    ]);
+    const { result } = await check({ alias: 'nope' });
+    const message =
+      'No host profile has the alias "nope". Configured aliases: nas._x_, gpu-box.lan, a.-_b_.c.';
+    expect(errorOf(result)).toEqual({
+      code: JsonRpcErrorCode.NotFound,
+      message,
+      data: {
+        reason: 'unknown_host',
+        alias: 'nope',
+        configured_aliases: ['nas._x_', 'gpu-box.lan', 'a.-_b_.c'],
+        configured_count: 3,
+        recovery: { hint: recoveryFor('unknown_host') },
+      },
+    });
+    const text = contentText(result);
+    expect(renderedLines(text)[0]).toBe(
+      'Error: No host profile has the alias "`nope`". Configured aliases: `nas._x_`, `gpu-box.lan`, `a.-_b_.c`.',
+    );
+    expect(parseMarkdown(text).textLines[0]).toBe(`Error: ${message}`);
+  });
+
+  it('no_address: quotes the alias as a code span in content[], structuredContent unchanged', async () => {
+    await installHosts([{ ...PROFILES.printer, alias: 'prn._x_' }]);
+    const { result } = await check({ alias: 'prn._x_' });
+    const message = 'The profile for "prn._x_" has no address to probe.';
+    expect(errorOf(result)).toEqual({
+      code: JsonRpcErrorCode.ConfigurationError,
+      message,
+      data: {
+        reason: 'no_address',
+        alias: 'prn._x_',
+        recovery: { hint: recoveryFor('no_address') },
+      },
+    });
+    const text = contentText(result);
+    expect(renderedLines(text)[0]).toBe(
+      'Error: The profile for "`prn._x_`" has no address to probe.',
+    );
+    expect(parseMarkdown(text).textLines[0]).toBe(`Error: ${message}`);
+  });
+
   it('rejects with an abort when cancelled mid-probe, destroying the socket', async () => {
     const fakes = installLanFakes({ tcp: { '192.0.2.50': ['silent'] } });
     const controller = new AbortController();
@@ -301,10 +350,21 @@ describe('wol_check_host — format()', () => {
       latency_ms: 12,
       guidance: 'Line one.\nLine two.',
     });
-    for (const value of ['## nas: refused', 'nas.home.arpa:445', 'no', '12 ms']) {
+    for (const value of ['## `nas`: refused', 'nas.home.arpa:445', 'no', '12 ms']) {
       expect(text).toContain(value);
     }
     expect(text).toContain('> Line one.\n> Line two.');
+  });
+
+  it('renders the alias heading as a code span that reads back exactly', async () => {
+    await installHosts([{ ...PROFILES.gpuBox, alias: 'nas._x_' }]);
+    const { structured, text } = await check(
+      { alias: 'nas._x_' },
+      { tcp: { '192.0.2.50': ['open'] } },
+    );
+    expect(structured).toMatchObject({ alias: 'nas._x_', outcome: 'open' });
+    expect(renderedLines(text)[0]).toBe('## `nas._x_`: open');
+    expect(parseMarkdown(text).headings).toEqual(['nas._x_: open']);
   });
 
   it('renders reachable as yes for an open port', () => {
