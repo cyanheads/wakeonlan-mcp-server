@@ -17,6 +17,8 @@ export default mergeConfig(
   defineConfig({
     resolve: { alias },
     test: {
+      // Vitest's fork watchdog calls ChildProcess.channel.unref(), unavailable on Bun.
+      ...(process.versions.bun && { pool: 'threads' }),
       // Socket tripwire: every project inherits it, so no suite can open a real socket.
       setupFiles: ['./tests/setup/socket-tripwire.ts'],
       projects: [
