@@ -7,15 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AGENT_DOC_ENTRY, filterAgentDocEntries } from '../../scripts/clean-mcpb.js';
-
-/**
- * Loaded by URL so `tsc` never follows the script's repo-only
- * `import('../src/mcp-server/skills.js')` fallback (cyanheads/mcp-ts-core#797).
- */
-const lintPackaging: {
-  AGENT_DOC_ENTRY: RegExp;
-  checkBundleEntries: (entries: string[], label: string) => string[];
-} = await import(new URL('../../scripts/lint-packaging.ts', import.meta.url).href);
+import * as lintPackaging from '../../scripts/lint-packaging.js';
 
 describe('bundle agent-doc selection', () => {
   it('uses the same selector in the cleaner and the packaging check', () => {
