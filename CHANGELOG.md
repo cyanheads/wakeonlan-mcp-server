@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.1](changelog/0.2.x/0.2.1.md) — 2026-11-21
+
+wol_wake_host runs a last probe when wait_for_s ends, so short windows no longer return not_reachable before the port can answer, and aliases in content[] render as code spans that read back exactly. Moves to mcp-ts-core 0.13.22.
+
 ## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-10-28
 
 Publishes the wakeonlan-guide agent skill over MCP (skill://wakeonlan-guide/SKILL.md), escapes operator-written host text in content[] so it reads back as written, and moves to mcp-ts-core 0.13.18: Markdown-escaped tool error text, startup config validated with the variable named, and Agent Plugins root manifests.

@@ -1,6 +1,6 @@
 # wakeonlan-mcp-server - Directory Structure
 
-Generated on: 2026-10-29 04:22:43
+Generated on: 2026-11-22 04:40:05
 
 ```text
 wakeonlan-mcp-server/
@@ -178,11 +178,12 @@ wakeonlan-mcp-server/
 │   │   └── tools-contract.int.test.ts
 │   ├── mcp-server/
 │   │   └── tools/
-│   │       └── definitions/
-│   │           ├── check-host.tool.test.ts
-│   │           ├── list-hosts.tool.test.ts
-│   │           ├── list-reference.tool.test.ts
-│   │           └── wake-host.tool.test.ts
+│   │       ├── definitions/
+│   │       │   ├── check-host.tool.test.ts
+│   │       │   ├── list-hosts.tool.test.ts
+│   │       │   ├── list-reference.tool.test.ts
+│   │       │   └── wake-host.tool.test.ts
+│   │       └── text.test.ts
 │   ├── scripts/
 │   │   └── bundle-agent-docs.test.ts
 │   ├── services/
